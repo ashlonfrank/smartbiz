@@ -13,6 +13,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Transaction, Account, Recommendation, DailyFlow } from '@/lib/types';
+import ChatSidebar from './ChatSidebar';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -210,10 +211,11 @@ export default function Dashboard() {
   const [analyzeStatus, setAnalyzeStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   // Load data from localStorage
   useEffect(() => {
-    const raw = localStorage.getItem('smartbiz_data');
+    const raw = localStorage.getItem('runwayai_data');
     if (!raw) {
       router.replace('/');
       return;
@@ -305,9 +307,9 @@ export default function Dashboard() {
       <nav className="relative z-10 flex items-center justify-between border-b border-white/5 px-6 py-4 md:px-10">
         <div className="flex items-center gap-3">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white shadow-lg shadow-indigo-500/30">
-            S
+            R
           </div>
-          <span className="text-sm font-semibold text-white">SmartBiz</span>
+          <span className="text-sm font-semibold text-white">RunwayAI</span>
           <span className="text-slate-700">/</span>
           <span className="text-sm text-slate-400">Dashboard</span>
         </div>
@@ -320,7 +322,7 @@ export default function Dashboard() {
           )}
           <button
             onClick={() => {
-              localStorage.removeItem('smartbiz_data');
+              localStorage.removeItem('runwayai_data');
               router.push('/');
             }}
             className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-white/10"
@@ -497,6 +499,13 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+
+      <ChatSidebar
+        transactions={transactions}
+        accounts={accounts}
+        isOpen={chatOpen}
+        onToggle={() => setChatOpen((v) => !v)}
+      />
     </div>
   );
 }

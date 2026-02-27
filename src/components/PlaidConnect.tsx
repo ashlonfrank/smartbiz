@@ -51,7 +51,7 @@ export default function PlaidConnect() {
       if (!txRes.ok) throw new Error(txData.error ?? 'Failed to fetch transactions');
 
       localStorage.setItem(
-        'smartbiz_data',
+        'runwayai_data',
         JSON.stringify({
           transactions: txData.transactions as Transaction[],
           accounts: txData.accounts as Account[],
@@ -98,7 +98,7 @@ export default function PlaidConnect() {
       </div>
 
       <h1 className="max-w-2xl text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl">
-        SmartBiz{' '}
+        RunwayAI{' '}
         <span className="bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 bg-clip-text text-transparent">
           Your AI Cash Flow Agent
         </span>

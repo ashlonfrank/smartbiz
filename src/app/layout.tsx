@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SmartBiz — Your AI Cash Flow Agent",
+  title: "RunwayAI — Your AI Cash Flow Agent",
   description: "Connect your bank account and let AI manage your cash flow operations",
 };
 
