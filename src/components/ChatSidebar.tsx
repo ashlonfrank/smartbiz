@@ -8,19 +8,41 @@ interface ChatMessage {
   content: string;
 }
 
+interface ChatAlert {
+  title: string;
+  description: string;
+  type: string;
+}
+
 interface ChatSidebarProps {
   transactions: Transaction[];
   accounts: Account[];
   isOpen: boolean;
   onToggle: () => void;
+  alerts?: ChatAlert[];
 }
 
-export default function ChatSidebar({ transactions, accounts, isOpen, onToggle }: ChatSidebarProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export default function ChatSidebar({ transactions, accounts, isOpen, onToggle, alerts }: ChatSidebarProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = localStorage.getItem('runwayai_chat_history');
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Persist chat history to localStorage (cap at 50 messages)
+  useEffect(() => {
+    if (messages.length > 0) {
+      const toStore = messages.slice(-50);
+      localStorage.setItem('runwayai_chat_history', JSON.stringify(toStore));
+    }
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -29,6 +51,17 @@ export default function ChatSidebar({ transactions, accounts, isOpen, onToggle }
   useEffect(() => {
     if (isOpen) inputRef.current?.focus();
   }, [isOpen]);
+
+  const handleCopyMessage = useCallback((content: string, idx: number) => {
+    navigator.clipboard.writeText(content);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 2000);
+  }, []);
+
+  const clearChat = useCallback(() => {
+    setMessages([]);
+    localStorage.removeItem('runwayai_chat_history');
+  }, []);
 
   const sendMessage = useCallback(async () => {
     const trimmed = input.trim();
@@ -49,6 +82,7 @@ export default function ChatSidebar({ transactions, accounts, isOpen, onToggle }
           transactions,
           accounts,
           history: updated.slice(-10),
+          alerts: alerts?.map((a) => ({ title: a.title, description: a.description, type: a.type })),
         }),
       });
       const data = await res.json();
@@ -62,7 +96,7 @@ export default function ChatSidebar({ transactions, accounts, isOpen, onToggle }
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, messages, transactions, accounts]);
+  }, [input, isLoading, messages, transactions, accounts, alerts]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -117,14 +151,25 @@ export default function ChatSidebar({ transactions, accounts, isOpen, onToggle }
               <div className="text-xs text-slate-500">Ask about your finances</div>
             </div>
           </div>
-          <button
-            onClick={onToggle}
-            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-300"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            {messages.length > 0 && (
+              <button
+                onClick={clearChat}
+                className="rounded-lg px-2 py-1.5 text-[10px] text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-300"
+                title="Clear chat history"
+              >
+                Clear
+              </button>
+            )}
+            <button
+              onClick={onToggle}
+              className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-300"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Messages area */}
@@ -162,16 +207,24 @@ export default function ChatSidebar({ transactions, accounts, isOpen, onToggle }
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} group`}
             >
               <div
-                className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
+                className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed relative ${
                   msg.role === 'user'
                     ? 'bg-indigo-600 text-white'
                     : 'border border-white/5 bg-slate-900/80 text-slate-300'
                 }`}
               >
                 <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.role === 'assistant' && (
+                  <button
+                    onClick={() => handleCopyMessage(msg.content, i)}
+                    className="absolute -bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-md bg-slate-800 border border-white/10 px-2 py-0.5 text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-700"
+                  >
+                    {copiedIdx === i ? 'Copied!' : 'Copy'}
+                  </button>
+                )}
               </div>
             </div>
           ))}

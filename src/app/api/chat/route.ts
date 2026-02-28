@@ -62,11 +62,12 @@ ${JSON.stringify(recent, null, 2)}`;
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, transactions, accounts, history } = await request.json() as {
+    const { message, transactions, accounts, history, alerts } = await request.json() as {
       message: string;
       transactions: Transaction[];
       accounts: Account[];
       history?: { role: 'user' | 'assistant'; content: string }[];
+      alerts?: { title: string; description: string; type: string }[];
     };
 
     if (!message?.trim()) {
@@ -75,12 +76,17 @@ export async function POST(request: NextRequest) {
 
     const context = buildContext(transactions ?? [], accounts ?? []);
 
+    let alertContext = '';
+    if (alerts?.length) {
+      alertContext = `\n\n## Active Alerts\n${alerts.map((a) => `- [${a.type.toUpperCase()}] ${a.title}: ${a.description}`).join('\n')}`;
+    }
+
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       {
         role: 'system',
         content: `You are RunwayAI, a conversational financial assistant for small business owners. You have access to the user's real bank transaction data and account information below.
 
-${context}
+${context}${alertContext}
 
 Rules:
 - Be conversational, concise, and helpful.
