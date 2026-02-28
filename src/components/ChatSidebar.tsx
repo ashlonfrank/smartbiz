@@ -20,9 +20,11 @@ interface ChatSidebarProps {
   isOpen: boolean;
   onToggle: () => void;
   alerts?: ChatAlert[];
+  initialQuery?: string;
+  onQueryConsumed?: () => void;
 }
 
-export default function ChatSidebar({ transactions, accounts, isOpen, onToggle, alerts }: ChatSidebarProps) {
+export default function ChatSidebar({ transactions, accounts, isOpen, onToggle, alerts, initialQuery, onQueryConsumed }: ChatSidebarProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -51,6 +53,43 @@ export default function ChatSidebar({ transactions, accounts, isOpen, onToggle, 
   useEffect(() => {
     if (isOpen) inputRef.current?.focus();
   }, [isOpen]);
+
+  // Auto-send initialQuery when provided (e.g., from "Ask AI" on recommendations)
+  useEffect(() => {
+    if (!initialQuery || isLoading) return;
+
+    const userMsg: ChatMessage = { role: 'user', content: initialQuery };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsLoading(true);
+    onQueryConsumed?.();
+
+    (async () => {
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: initialQuery,
+            transactions,
+            accounts,
+            history: [...messages, userMsg].slice(-10),
+            alerts: alerts?.map((a) => ({ title: a.title, description: a.description, type: a.type })),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Failed to get response');
+        setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   const handleCopyMessage = useCallback((content: string, idx: number) => {
     navigator.clipboard.writeText(content);

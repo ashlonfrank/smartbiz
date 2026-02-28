@@ -138,25 +138,34 @@ function RecommendationCard({
   onAction,
 }: {
   rec: Recommendation;
-  onAction: (type: string, action: 'approve' | 'edit' | 'dismiss') => void;
+  onAction: (type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = severityConfig[rec.severity];
 
   return (
-    <div className={`rounded-xl border ${cfg.border} ${cfg.bg} p-5 transition-all`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
-          <span className="text-xl shrink-0 mt-0.5">{typeIcons[rec.type]}</span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-1">
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cfg.badge}`}>
-                {rec.severity.toUpperCase()}
-              </span>
-              <span className="text-xs text-slate-500">{typeLabels[rec.type]}</span>
-            </div>
-            <h3 className="text-sm font-semibold text-white leading-snug">{rec.title}</h3>
+    <div className={`rounded-xl border ${cfg.border} ${cfg.bg} p-5 transition-all relative group`}>
+      {/* Dismiss X in corner */}
+      <button
+        onClick={() => onAction(rec.type, 'dismiss')}
+        className="absolute top-3 right-3 rounded-lg p-1 text-slate-600 opacity-0 group-hover:opacity-100 transition-all hover:bg-white/5 hover:text-slate-300"
+        title="Dismiss"
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M18 6L6 18M6 6l12 12" />
+        </svg>
+      </button>
+
+      <div className="flex items-start gap-3 min-w-0 pr-6">
+        <span className="text-xl shrink-0 mt-0.5">{typeIcons[rec.type]}</span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cfg.badge}`}>
+              {rec.severity.toUpperCase()}
+            </span>
+            <span className="text-xs text-slate-500">{typeLabels[rec.type]}</span>
           </div>
+          <h3 className="text-sm font-semibold text-white leading-snug">{rec.title}</h3>
         </div>
       </div>
 
@@ -192,22 +201,22 @@ function RecommendationCard({
       {/* Action buttons */}
       <div className="mt-4 flex gap-2">
         <button
-          onClick={() => onAction(rec.type, 'approve')}
-          className="flex-1 rounded-lg bg-emerald-600/20 border border-emerald-500/30 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-600/30"
-        >
-          ✓ Approve
-        </button>
-        <button
           onClick={() => onAction(rec.type, 'edit')}
-          className="flex-1 rounded-lg bg-white/5 border border-white/10 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-white/10"
+          className="flex-1 rounded-lg bg-indigo-600/20 border border-indigo-500/30 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-600/30"
         >
           ✎ Edit
         </button>
         <button
-          onClick={() => onAction(rec.type, 'dismiss')}
-          className="flex-1 rounded-lg bg-white/5 border border-white/10 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white/10 hover:text-slate-300"
+          onClick={() => onAction(rec.type, 'ask_ai')}
+          className="flex-1 rounded-lg bg-violet-600/20 border border-violet-500/30 py-1.5 text-xs font-medium text-violet-400 transition-colors hover:bg-violet-600/30"
         >
-          ✕ Dismiss
+          💬 Ask AI
+        </button>
+        <button
+          onClick={() => onAction(rec.type, 'approve')}
+          className="flex-1 rounded-lg bg-emerald-600/10 border border-emerald-500/20 py-1.5 text-xs font-medium text-emerald-400/80 transition-colors hover:bg-emerald-600/20"
+        >
+          ✓ Mark as Done
         </button>
       </div>
     </div>
@@ -242,6 +251,7 @@ export default function Dashboard() {
   const [chatOpen, setChatOpen] = useState(false);
   const [editingRec, setEditingRec] = useState<Recommendation | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [chatInitialQuery, setChatInitialQuery] = useState<string | undefined>();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(loadDismissedAlerts);
   const [budgets, setBudgets] = useState<BudgetThreshold[]>(loadBudgets);
@@ -327,7 +337,7 @@ export default function Dashboard() {
     }));
   }, [approved, dismissed]);
 
-  const handleAction = useCallback((type: string, action: 'approve' | 'edit' | 'dismiss') => {
+  const handleAction = useCallback((type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => {
     if (action === 'dismiss') {
       setDismissed((prev) => new Set([...prev, type]));
     } else if (action === 'approve') {
@@ -335,6 +345,12 @@ export default function Dashboard() {
     } else if (action === 'edit') {
       const rec = recommendations.find((r) => r.type === type);
       if (rec) setEditingRec(rec);
+    } else if (action === 'ask_ai') {
+      const rec = recommendations.find((r) => r.type === type);
+      if (rec) {
+        setChatInitialQuery(`Tell me more about: ${rec.title}. ${rec.description} What specific details can you share from my transaction data?`);
+        setChatOpen(true);
+      }
     }
   }, [recommendations]);
 
@@ -635,6 +651,8 @@ export default function Dashboard() {
         isOpen={chatOpen}
         onToggle={() => setChatOpen((v) => !v)}
         alerts={alerts}
+        initialQuery={chatInitialQuery}
+        onQueryConsumed={() => setChatInitialQuery(undefined)}
       />
     </div>
   );
