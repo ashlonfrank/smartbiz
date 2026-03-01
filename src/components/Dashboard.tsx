@@ -13,6 +13,24 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Transaction, Account, Recommendation, DailyFlow } from '@/lib/types';
+import { exportTransactionsCSV, exportDashboardPDF, exportLoanReadinessReport } from '@/lib/export';
+import { mockTransactions, mockAccounts } from '@/lib/mock-data';
+import {
+  Alert,
+  BudgetThreshold,
+  detectAnomalies,
+  checkBudgetThresholds,
+  loadBudgets,
+  saveBudgets,
+  loadDismissedAlerts,
+  saveDismissedAlerts,
+  suggestThresholds,
+} from '@/lib/alerts';
+import ChatSidebar from './ChatSidebar';
+import TransactionList from './TransactionList';
+import CategoryBreakdown from './CategoryBreakdown';
+import ActionModal from './ActionModal';
+import AlertBanner from './AlertBanner';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -87,6 +105,7 @@ const typeLabels: Record<string, string> = {
   anomalies:          'Anomaly Detection',
   subscription_audit: 'Subscription Audit',
   payment_timing:     'Payment Timing',
+  loan_readiness:     'Loan Readiness',
 };
 
 const typeIcons: Record<string, string> = {
@@ -95,6 +114,7 @@ const typeIcons: Record<string, string> = {
   anomalies:          '⚠️',
   subscription_audit: '🔄',
   payment_timing:     '⏰',
+  loan_readiness:     '🏦',
 };
 
 // ─── custom tooltip ──────────────────────────────────────────────────────────
@@ -121,25 +141,34 @@ function RecommendationCard({
   onAction,
 }: {
   rec: Recommendation;
-  onAction: (type: string, action: 'approve' | 'edit' | 'dismiss') => void;
+  onAction: (type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = severityConfig[rec.severity];
 
   return (
-    <div className={`rounded-xl border ${cfg.border} ${cfg.bg} p-5 transition-all`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
-          <span className="text-xl shrink-0 mt-0.5">{typeIcons[rec.type]}</span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-1">
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cfg.badge}`}>
-                {rec.severity.toUpperCase()}
-              </span>
-              <span className="text-xs text-slate-500">{typeLabels[rec.type]}</span>
-            </div>
-            <h3 className="text-sm font-semibold text-white leading-snug">{rec.title}</h3>
+    <div className={`rounded-xl border ${cfg.border} ${cfg.bg} p-5 transition-all relative group`}>
+      {/* Dismiss X in corner */}
+      <button
+        onClick={() => onAction(rec.type, 'dismiss')}
+        className="absolute top-3 right-3 rounded-lg p-1 text-slate-600 opacity-0 group-hover:opacity-100 transition-all hover:bg-white/5 hover:text-slate-300"
+        title="Dismiss"
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M18 6L6 18M6 6l12 12" />
+        </svg>
+      </button>
+
+      <div className="flex items-start gap-3 min-w-0 pr-6">
+        <span className="text-xl shrink-0 mt-0.5">{typeIcons[rec.type]}</span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cfg.badge}`}>
+              {rec.severity.toUpperCase()}
+            </span>
+            <span className="text-xs text-slate-500">{typeLabels[rec.type]}</span>
           </div>
+          <h3 className="text-sm font-semibold text-white leading-snug">{rec.title}</h3>
         </div>
       </div>
 
@@ -175,22 +204,22 @@ function RecommendationCard({
       {/* Action buttons */}
       <div className="mt-4 flex gap-2">
         <button
-          onClick={() => onAction(rec.type, 'approve')}
-          className="flex-1 rounded-lg bg-emerald-600/20 border border-emerald-500/30 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-600/30"
-        >
-          ✓ Approve
-        </button>
-        <button
           onClick={() => onAction(rec.type, 'edit')}
-          className="flex-1 rounded-lg bg-white/5 border border-white/10 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-white/10"
+          className="flex-1 rounded-lg bg-indigo-600/20 border border-indigo-500/30 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-600/30"
         >
           ✎ Edit
         </button>
         <button
-          onClick={() => onAction(rec.type, 'dismiss')}
-          className="flex-1 rounded-lg bg-white/5 border border-white/10 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white/10 hover:text-slate-300"
+          onClick={() => onAction(rec.type, 'ask_ai')}
+          className="flex-1 rounded-lg bg-violet-600/20 border border-violet-500/30 py-1.5 text-xs font-medium text-violet-400 transition-colors hover:bg-violet-600/30"
         >
-          ✕ Dismiss
+          💬 Ask AI
+        </button>
+        <button
+          onClick={() => onAction(rec.type, 'approve')}
+          className="flex-1 rounded-lg bg-emerald-600/10 border border-emerald-500/20 py-1.5 text-xs font-medium text-emerald-400/80 transition-colors hover:bg-emerald-600/20"
+        >
+          ✓ Mark as Done
         </button>
       </div>
     </div>
@@ -204,24 +233,47 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [approved, setApproved] = useState<Set<string>>(new Set());
+  const [dismissed, setDismissed] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const stored = localStorage.getItem('runwayai_approvals');
+      return stored ? new Set(JSON.parse(stored).dismissed ?? []) : new Set();
+    } catch { return new Set(); }
+  });
+  const [approved, setApproved] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const stored = localStorage.getItem('runwayai_approvals');
+      return stored ? new Set(JSON.parse(stored).approved ?? []) : new Set();
+    } catch { return new Set(); }
+  });
   const [chartData, setChartData] = useState<DailyFlow[]>([]);
   const [analyzeStatus, setAnalyzeStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [editingRec, setEditingRec] = useState<Recommendation | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [chatInitialQuery, setChatInitialQuery] = useState<string | undefined>();
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(loadDismissedAlerts);
+  const [budgets, setBudgets] = useState<BudgetThreshold[]>(loadBudgets);
 
-  // Load data from localStorage
+  // Load data from localStorage — fall back to mock data for development
   useEffect(() => {
-    const raw = localStorage.getItem('smartbiz_data');
-    if (!raw) {
-      router.replace('/');
-      return;
+    const raw = localStorage.getItem('runwayai_data');
+    let tx: Transaction[];
+    let accts: Account[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as { transactions: Transaction[]; accounts: Account[] };
+      tx = parsed.transactions;
+      accts = parsed.accounts;
+    } else {
+      // No Plaid data — seed with mock restaurant data for development
+      tx = mockTransactions;
+      accts = mockAccounts;
+      localStorage.setItem('runwayai_data', JSON.stringify({ transactions: tx, accounts: accts }));
     }
-    const { transactions: tx, accounts: accts } = JSON.parse(raw) as {
-      transactions: Transaction[];
-      accounts: Account[];
-    };
     setTransactions(tx);
     setAccounts(accts);
     setChartData(buildChartData(tx));
@@ -253,20 +305,73 @@ export default function Dashboard() {
     }
   }, [loaded, transactions, accounts, analyzeStatus, runAnalysis]);
 
-  const handleAction = useCallback((type: string, action: 'approve' | 'edit' | 'dismiss') => {
+  // Run alert detection when data is available
+  useEffect(() => {
+    if (!loaded || transactions.length === 0) return;
+    // Auto-suggest budgets if none set
+    if (budgets.length === 0) {
+      const suggested = suggestThresholds(transactions);
+      if (suggested.length > 0) {
+        setBudgets(suggested);
+        saveBudgets(suggested);
+      }
+    }
+    const anomalies = detectAnomalies(transactions);
+    const budgetAlerts = checkBudgetThresholds(transactions, budgets);
+    const allAlerts = [...anomalies, ...budgetAlerts].filter((a) => !dismissedAlerts.has(a.id));
+    setAlerts(allAlerts);
+  }, [loaded, transactions, budgets, dismissedAlerts]);
+
+  const handleDismissAlert = useCallback((id: string) => {
+    setDismissedAlerts((prev) => {
+      const next = new Set([...prev, id]);
+      saveDismissedAlerts(next);
+      return next;
+    });
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const handleUpdateBudgets = useCallback((newBudgets: BudgetThreshold[]) => {
+    setBudgets(newBudgets);
+    saveBudgets(newBudgets);
+  }, []);
+
+  // Persist approval state to localStorage
+  useEffect(() => {
+    localStorage.setItem('runwayai_approvals', JSON.stringify({
+      approved: [...approved],
+      dismissed: [...dismissed],
+    }));
+  }, [approved, dismissed]);
+
+  const handleAction = useCallback((type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => {
     if (action === 'dismiss') {
       setDismissed((prev) => new Set([...prev, type]));
     } else if (action === 'approve') {
       setApproved((prev) => new Set([...prev, type]));
+    } else if (action === 'edit') {
+      const rec = recommendations.find((r) => r.type === type);
+      if (rec) setEditingRec(rec);
+    } else if (action === 'ask_ai') {
+      const rec = recommendations.find((r) => r.type === type);
+      if (rec) {
+        setChatInitialQuery(`Tell me more about: ${rec.title}. ${rec.description} What specific details can you share from my transaction data?`);
+        setChatOpen(true);
+      }
     }
-    // 'edit' could open a modal in future
-  }, []);
+  }, [recommendations]);
 
   // ── stats ────────────────────────────────────────────────────────────────
   const totalBalance = accounts.reduce((s, a) => s + (a.balances.current ?? 0), 0);
   const totalSpend = transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
   const totalIncome = Math.abs(transactions.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0));
   const netFlow = totalIncome - totalSpend;
+
+  // Cash runway: months of cash remaining at current burn rate
+  const monthlyBurn = totalSpend / 3; // 90 days = 3 months
+  const runwayMonths = monthlyBurn > 0 ? totalBalance / monthlyBurn : Infinity;
+  const runwayLabel = runwayMonths === Infinity ? 'N/A' : runwayMonths < 1 ? '< 1 mo' : `${runwayMonths.toFixed(1)} mo`;
+  const runwayColor = runwayMonths < 3 ? 'text-red-400' : runwayMonths < 6 ? 'text-amber-400' : 'text-emerald-400';
 
   const visibleRecs = recommendations.filter((r) => !dismissed.has(r.type));
   const criticalCount = visibleRecs.filter((r) => r.severity === 'critical').length;
@@ -305,9 +410,9 @@ export default function Dashboard() {
       <nav className="relative z-10 flex items-center justify-between border-b border-white/5 px-6 py-4 md:px-10">
         <div className="flex items-center gap-3">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white shadow-lg shadow-indigo-500/30">
-            S
+            R
           </div>
-          <span className="text-sm font-semibold text-white">SmartBiz</span>
+          <span className="text-sm font-semibold text-white">RunwayAI</span>
           <span className="text-slate-700">/</span>
           <span className="text-sm text-slate-400">Dashboard</span>
         </div>
@@ -318,9 +423,39 @@ export default function Dashboard() {
               {criticalCount} critical
             </div>
           )}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu((v) => !v)}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-white/10"
+            >
+              Export
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-white/10 bg-slate-900 py-1 shadow-xl z-20">
+                <button
+                  onClick={() => { exportTransactionsCSV(transactions); setShowExportMenu(false); }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
+                >
+                  Download CSV
+                </button>
+                <button
+                  onClick={() => { exportDashboardPDF(transactions, accounts); setShowExportMenu(false); }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
+                >
+                  Download PDF Report
+                </button>
+                <button
+                  onClick={() => { exportLoanReadinessReport(transactions, accounts); setShowExportMenu(false); }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
+                >
+                  🏦 Loan Readiness Report
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => {
-              localStorage.removeItem('smartbiz_data');
+              localStorage.removeItem('runwayai_data');
               router.push('/');
             }}
             className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-white/10"
@@ -332,8 +467,11 @@ export default function Dashboard() {
 
       <main className="relative z-10 mx-auto max-w-6xl px-4 py-8 md:px-8">
 
+        {/* ── Alert Banner ─────────────────────────────────────────────── */}
+        <AlertBanner alerts={alerts} onDismiss={handleDismissAlert} />
+
         {/* ── Stat cards ─────────────────────────────────────────────────── */}
-        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-5">
           {[
             { label: 'Total Balance', value: formatCurrency(totalBalance), sub: `${accounts.length} accounts`, color: 'text-white' },
             { label: '90-Day Spend', value: formatCurrency(totalSpend), sub: `${transactions.filter((t) => t.amount > 0).length} transactions`, color: 'text-red-400' },
@@ -344,8 +482,14 @@ export default function Dashboard() {
               sub: 'last 90 days',
               color: netFlow >= 0 ? 'text-emerald-400' : 'text-red-400',
             },
+            {
+              label: 'Cash Runway',
+              value: runwayLabel,
+              sub: monthlyBurn > 0 ? `${formatCurrency(monthlyBurn)}/mo burn` : 'no expenses',
+              color: runwayColor,
+            },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-white/5 bg-slate-900/60 p-5">
+            <div key={s.label} className={`rounded-xl border ${s.label === 'Cash Runway' && runwayMonths < 3 ? 'border-red-500/30 bg-red-500/5' : 'border-white/5 bg-slate-900/60'} p-5`}>
               <div className="text-xs font-medium uppercase tracking-widest text-slate-500">{s.label}</div>
               <div className={`mt-2 text-xl font-bold tabular-nums ${s.color}`}>{s.value}</div>
               <div className="mt-1 text-xs text-slate-600">{s.sub}</div>
@@ -354,7 +498,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── Cash flow chart ─────────────────────────────────────────────── */}
-        <div className="mb-8 rounded-xl border border-white/5 bg-slate-900/60 p-6">
+        <div data-pdf-chart className="mb-8 rounded-xl border border-white/5 bg-slate-900/60 p-6">
           <div className="mb-1 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-white">Cash Flow Timeline</h2>
             <div className="flex items-center gap-4 text-xs text-slate-500">
@@ -428,6 +572,12 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
 
+        {/* ── Category Breakdown + Transaction List ──────────────────────── */}
+        <div className="mb-8 grid gap-8 lg:grid-cols-2">
+          <CategoryBreakdown transactions={transactions} budgets={budgets} onUpdateBudgets={handleUpdateBudgets} />
+          <TransactionList transactions={transactions} />
+        </div>
+
         {/* ── AI Recommendations ──────────────────────────────────────────── */}
         <div>
           <div className="mb-4 flex items-center justify-between">
@@ -497,6 +647,26 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+
+      {editingRec && (
+        <ActionModal
+          recommendation={editingRec}
+          transactions={transactions}
+          accounts={accounts}
+          onClose={() => setEditingRec(null)}
+          onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
+        />
+      )}
+
+      <ChatSidebar
+        transactions={transactions}
+        accounts={accounts}
+        isOpen={chatOpen}
+        onToggle={() => setChatOpen((v) => !v)}
+        alerts={alerts}
+        initialQuery={chatInitialQuery}
+        onQueryConsumed={() => setChatInitialQuery(undefined)}
+      />
     </div>
   );
 }

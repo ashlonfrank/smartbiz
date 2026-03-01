@@ -44,7 +44,23 @@ function buildPrompt(transactions: Transaction[], accounts: Account[]): string {
       category: t.personal_finance_category?.primary ?? t.category?.[0] ?? 'Unknown',
     }));
 
-  return `You are a financial AI analyst for a small business. Analyse the following financial data and return exactly 5 recommendations as a JSON array.
+  // Calculate monthly revenue for growth signal
+  const now = new Date();
+  const monthBuckets = [0, 0, 0]; // [oldest, middle, newest]
+  for (const t of incomeTx) {
+    const txDate = new Date(t.date);
+    const daysAgo = Math.floor((now.getTime() - txDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysAgo <= 30) monthBuckets[2] += Math.abs(t.amount);
+    else if (daysAgo <= 60) monthBuckets[1] += Math.abs(t.amount);
+    else monthBuckets[0] += Math.abs(t.amount);
+  }
+  const revenueGrowth = monthBuckets[0] > 0
+    ? (((monthBuckets[2] - monthBuckets[0]) / monthBuckets[0]) * 100).toFixed(1)
+    : 'N/A';
+  const monthlyBurn = totalSpend / 3;
+  const cashRunwayMonths = monthlyBurn > 0 ? (totalBalance / monthlyBurn).toFixed(1) : 'N/A';
+
+  return `You are a financial AI analyst for a small business. Analyse the following financial data and return exactly 6 recommendations as a JSON array.
 
 ## Account Summary
 - Total current balance: $${totalBalance.toFixed(2)}
@@ -56,6 +72,9 @@ function buildPrompt(transactions: Transaction[], accounts: Account[]): string {
 - Total income: $${totalIncome.toFixed(2)}
 - Net cash flow: $${(totalIncome - totalSpend).toFixed(2)}
 - Transaction count: ${transactions.length}
+- Monthly revenue (oldest→newest): $${monthBuckets[0].toFixed(2)} → $${monthBuckets[1].toFixed(2)} → $${monthBuckets[2].toFixed(2)}
+- Revenue growth (month 1 to month 3): ${revenueGrowth}%
+- Cash runway: ${cashRunwayMonths} months
 
 ## Top Merchants by Spend
 ${topMerchants.join('\n')}
@@ -93,6 +112,10 @@ Return ONLY a valid JSON object with this exact shape — no markdown, no code f
     {
       "type": "payment_timing",
       ...
+    },
+    {
+      "type": "loan_readiness",
+      ...
     }
   ]
 }
@@ -102,7 +125,8 @@ Rules:
 - severity must be one of: critical, warning, info.
 - Be specific — reference actual merchant names, amounts, and dates from the data.
 - suggested_action must be a concrete, actionable next step.
-- reasoning must explain why this is flagged based on the data.`;
+- reasoning must explain why this is flagged based on the data.
+- For loan_readiness: Only flag this if financial signals are positive (growing or stable revenue, cash runway > 3 months, positive net cash flow). Use severity "info" since it's an opportunity, not a problem. The title should reference specific growth numbers from the data. The suggested_action should mention downloading the Cash Flow Signal Report to share with lenders.`;
 }
 
 export async function POST(request: NextRequest) {

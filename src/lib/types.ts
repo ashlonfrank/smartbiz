@@ -26,7 +26,8 @@ export type RecommendationType =
   | 'overdue_invoices'
   | 'anomalies'
   | 'subscription_audit'
-  | 'payment_timing';
+  | 'payment_timing'
+  | 'loan_readiness';
 
 export type Severity = 'critical' | 'warning' | 'info';
 
