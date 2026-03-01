@@ -2,43 +2,28 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts';
+import { Info, Maximize2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Transaction, Account, Recommendation, DailyFlow } from '@/lib/types';
-import { exportTransactionsCSV, exportDashboardPDF, exportLoanReadinessReport } from '@/lib/export';
+import { exportTransactionsCSV, exportDashboardPDF } from '@/lib/export';
 import { mockTransactions, mockAccounts } from '@/lib/mock-data';
-import {
-  Alert,
-  BudgetThreshold,
-  detectAnomalies,
-  checkBudgetThresholds,
-  loadBudgets,
-  saveBudgets,
-  loadDismissedAlerts,
-  saveDismissedAlerts,
-  suggestThresholds,
-} from '@/lib/alerts';
-import ChatSidebar from './ChatSidebar';
-import TransactionList from './TransactionList';
-import CategoryBreakdown from './CategoryBreakdown';
-import ActionModal from './ActionModal';
-import AlertBanner from './AlertBanner';
+import { detectAnomalies, checkBudgetThresholds, loadBudgets, saveBudgets, suggestThresholds } from '@/lib/alerts';
+import { TopNav } from './TopNav';
+import { StabilityChart } from './StabilityChart';
+import { GrowthChart } from './GrowthChart';
+import { InsightPanel, ChatContext, ChatMessage, ChatHistories } from './InsightPanel';
+import { TransactionList } from './TransactionList';
+import { SpendingByCategory } from './SpendingByCategory';
+import { LendingReport } from './LendingReport';
+import { ChartModal } from './ChartModal';
+import { ContextualQuestions } from './ContextualQuestions';
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
 
 function buildChartData(transactions: Transaction[]): DailyFlow[] {
   const now = new Date();
   const days: DailyFlow[] = [];
 
-  // Historical: last 60 days
   for (let i = 59; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
@@ -53,7 +38,6 @@ function buildChartData(transactions: Transaction[]): DailyFlow[] {
     else days[idx].income += Math.abs(tx.amount);
   }
 
-  // 7-day avg daily net for forecast
   const lastSevenNet = days.slice(-7).map((d) => d.income - d.spend);
   const avgNet = lastSevenNet.reduce((s, v) => s + v, 0) / lastSevenNet.length;
 
@@ -64,7 +48,6 @@ function buildChartData(transactions: Transaction[]): DailyFlow[] {
     d.cumulative = cumulative;
   }
 
-  // Forecast: next 30 days
   let forecastCumulative = cumulative;
   for (let i = 1; i <= 30; i++) {
     const d = new Date(now);
@@ -72,9 +55,7 @@ function buildChartData(transactions: Transaction[]): DailyFlow[] {
     forecastCumulative += avgNet;
     days.push({
       date: d.toISOString().split('T')[0],
-      spend: 0,
-      income: 0,
-      net: avgNet,
+      spend: 0, income: 0, net: avgNet,
       cumulative,
       forecast: forecastCumulative,
     });
@@ -87,202 +68,50 @@ function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-// ─── severity config ─────────────────────────────────────────────────────────
-
-const severityConfig = {
-  critical: { border: 'border-red-500/40', bg: 'bg-red-500/10', badge: 'bg-red-500/20 text-red-400', dot: 'bg-red-400' },
-  warning:  { border: 'border-amber-500/40', bg: 'bg-amber-500/10', badge: 'bg-amber-500/20 text-amber-400', dot: 'bg-amber-400' },
-  info:     { border: 'border-indigo-500/40', bg: 'bg-indigo-500/10', badge: 'bg-indigo-500/20 text-indigo-400', dot: 'bg-indigo-400' },
-};
-
-const typeLabels: Record<string, string> = {
-  cash_flow_forecast: 'Cash Flow Forecast',
-  overdue_invoices:   'Overdue Invoices',
-  anomalies:          'Anomaly Detection',
-  subscription_audit: 'Subscription Audit',
-  payment_timing:     'Payment Timing',
-  loan_readiness:     'Loan Readiness',
-};
-
-const typeIcons: Record<string, string> = {
-  cash_flow_forecast: '📈',
-  overdue_invoices:   '🧾',
-  anomalies:          '⚠️',
-  subscription_audit: '🔄',
-  payment_timing:     '⏰',
-  loan_readiness:     '🏦',
-};
-
-// ─── custom tooltip ──────────────────────────────────────────────────────────
-
-function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-lg border border-white/10 bg-slate-900 p-3 text-xs shadow-xl">
-      <div className="mb-2 font-medium text-slate-300">{label}</div>
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2 text-slate-400">
-          <span className="capitalize">{p.name}:</span>
-          <span className="font-semibold text-white">{formatCurrency(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── recommendation card ─────────────────────────────────────────────────────
-
-function RecommendationCard({
-  rec,
-  onAction,
-}: {
-  rec: Recommendation;
-  onAction: (type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const cfg = severityConfig[rec.severity];
-
-  return (
-    <div className={`rounded-xl border ${cfg.border} ${cfg.bg} p-5 transition-all relative group`}>
-      {/* Dismiss X in corner */}
-      <button
-        onClick={() => onAction(rec.type, 'dismiss')}
-        className="absolute top-3 right-3 rounded-lg p-1 text-slate-600 opacity-0 group-hover:opacity-100 transition-all hover:bg-white/5 hover:text-slate-300"
-        title="Dismiss"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M18 6L6 18M6 6l12 12" />
-        </svg>
-      </button>
-
-      <div className="flex items-start gap-3 min-w-0 pr-6">
-        <span className="text-xl shrink-0 mt-0.5">{typeIcons[rec.type]}</span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cfg.badge}`}>
-              {rec.severity.toUpperCase()}
-            </span>
-            <span className="text-xs text-slate-500">{typeLabels[rec.type]}</span>
-          </div>
-          <h3 className="text-sm font-semibold text-white leading-snug">{rec.title}</h3>
-        </div>
-      </div>
-
-      <p className="mt-3 text-sm leading-relaxed text-slate-400">{rec.description}</p>
-
-      {/* Expandable reasoning */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="mt-3 flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-      >
-        <svg
-          className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-        >
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        {expanded ? 'Hide' : 'Show'} reasoning
-      </button>
-
-      {expanded && (
-        <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3 text-xs leading-relaxed text-slate-400">
-          <span className="font-medium text-slate-300">Reasoning: </span>
-          {rec.reasoning}
-        </div>
-      )}
-
-      {/* Suggested action */}
-      <div className="mt-4 rounded-lg border border-white/5 bg-black/20 p-3 text-xs text-slate-300">
-        <span className="font-medium text-white">Suggested action: </span>
-        {rec.suggested_action}
-      </div>
-
-      {/* Action buttons */}
-      <div className="mt-4 flex gap-2">
-        <button
-          onClick={() => onAction(rec.type, 'edit')}
-          className="flex-1 rounded-lg bg-indigo-600/20 border border-indigo-500/30 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-600/30"
-        >
-          ✎ Edit
-        </button>
-        <button
-          onClick={() => onAction(rec.type, 'ask_ai')}
-          className="flex-1 rounded-lg bg-violet-600/20 border border-violet-500/30 py-1.5 text-xs font-medium text-violet-400 transition-colors hover:bg-violet-600/30"
-        >
-          💬 Ask AI
-        </button>
-        <button
-          onClick={() => onAction(rec.type, 'approve')}
-          className="flex-1 rounded-lg bg-emerald-600/10 border border-emerald-500/20 py-1.5 text-xs font-medium text-emerald-400/80 transition-colors hover:bg-emerald-600/20"
-        >
-          ✓ Mark as Done
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── main dashboard ──────────────────────────────────────────────────────────
+// ── main dashboard ────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [chartData, setChartData] = useState<DailyFlow[]>([]);
+  const [analyzeStatus, setAnalyzeStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [loaded, setLoaded] = useState(false);
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [expandedChart, setExpandedChart] = useState<'stability' | 'growth' | 'transactions' | 'spending' | null>(null);
+  const [activeChat, setActiveChat] = useState<ChatContext>(null);
+  const [chatHistories, setChatHistories] = useState<ChatHistories>({});
   const [dismissed, setDismissed] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set();
-    try {
-      const stored = localStorage.getItem('runwayai_approvals');
-      return stored ? new Set(JSON.parse(stored).dismissed ?? []) : new Set();
-    } catch { return new Set(); }
+    try { const s = localStorage.getItem('runwayai_approvals'); return s ? new Set(JSON.parse(s).dismissed ?? []) : new Set(); }
+    catch { return new Set(); }
   });
   const [approved, setApproved] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set();
-    try {
-      const stored = localStorage.getItem('runwayai_approvals');
-      return stored ? new Set(JSON.parse(stored).approved ?? []) : new Set();
-    } catch { return new Set(); }
+    try { const s = localStorage.getItem('runwayai_approvals'); return s ? new Set(JSON.parse(s).approved ?? []) : new Set(); }
+    catch { return new Set(); }
   });
-  const [chartData, setChartData] = useState<DailyFlow[]>([]);
-  const [analyzeStatus, setAnalyzeStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [editingRec, setEditingRec] = useState<Recommendation | null>(null);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const [chatInitialQuery, setChatInitialQuery] = useState<string | undefined>();
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(loadDismissedAlerts);
-  const [budgets, setBudgets] = useState<BudgetThreshold[]>(loadBudgets);
 
-  // Load data from localStorage — fall back to mock data for development
+  // Load data
   useEffect(() => {
     const raw = localStorage.getItem('runwayai_data');
-    let tx: Transaction[];
-    let accts: Account[];
+    let tx: Transaction[], accts: Account[];
     if (raw) {
       const parsed = JSON.parse(raw) as { transactions: Transaction[]; accounts: Account[] };
-      tx = parsed.transactions;
-      accts = parsed.accounts;
+      tx = parsed.transactions; accts = parsed.accounts;
     } else {
-      // No Plaid data — seed with mock restaurant data for development
-      tx = mockTransactions;
-      accts = mockAccounts;
+      tx = mockTransactions; accts = mockAccounts;
       localStorage.setItem('runwayai_data', JSON.stringify({ transactions: tx, accounts: accts }));
     }
-    setTransactions(tx);
-    setAccounts(accts);
+    setTransactions(tx); setAccounts(accts);
     setChartData(buildChartData(tx));
     setLoaded(true);
-  }, [router]);
+  }, []);
 
+  // Run /api/analyze
   const runAnalysis = useCallback(async (tx: Transaction[], accts: Account[]) => {
     setAnalyzeStatus('loading');
-    setAnalyzeError(null);
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
@@ -293,8 +122,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error ?? 'Analysis failed');
       setRecommendations(data.recommendations ?? []);
       setAnalyzeStatus('done');
-    } catch (err) {
-      setAnalyzeError(err instanceof Error ? err.message : 'Something went wrong');
+    } catch {
       setAnalyzeStatus('error');
     }
   }, []);
@@ -305,367 +133,398 @@ export default function Dashboard() {
     }
   }, [loaded, transactions, accounts, analyzeStatus, runAnalysis]);
 
-  // Run alert detection when data is available
+  // Persist approval state
   useEffect(() => {
-    if (!loaded || transactions.length === 0) return;
-    // Auto-suggest budgets if none set
-    if (budgets.length === 0) {
-      const suggested = suggestThresholds(transactions);
-      if (suggested.length > 0) {
-        setBudgets(suggested);
-        saveBudgets(suggested);
-      }
-    }
-    const anomalies = detectAnomalies(transactions);
-    const budgetAlerts = checkBudgetThresholds(transactions, budgets);
-    const allAlerts = [...anomalies, ...budgetAlerts].filter((a) => !dismissedAlerts.has(a.id));
-    setAlerts(allAlerts);
-  }, [loaded, transactions, budgets, dismissedAlerts]);
-
-  const handleDismissAlert = useCallback((id: string) => {
-    setDismissedAlerts((prev) => {
-      const next = new Set([...prev, id]);
-      saveDismissedAlerts(next);
-      return next;
-    });
-    setAlerts((prev) => prev.filter((a) => a.id !== id));
-  }, []);
-
-  const handleUpdateBudgets = useCallback((newBudgets: BudgetThreshold[]) => {
-    setBudgets(newBudgets);
-    saveBudgets(newBudgets);
-  }, []);
-
-  // Persist approval state to localStorage
-  useEffect(() => {
-    localStorage.setItem('runwayai_approvals', JSON.stringify({
-      approved: [...approved],
-      dismissed: [...dismissed],
-    }));
+    localStorage.setItem('runwayai_approvals', JSON.stringify({ approved: [...approved], dismissed: [...dismissed] }));
   }, [approved, dismissed]);
 
-  const handleAction = useCallback((type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => {
-    if (action === 'dismiss') {
-      setDismissed((prev) => new Set([...prev, type]));
-    } else if (action === 'approve') {
-      setApproved((prev) => new Set([...prev, type]));
-    } else if (action === 'edit') {
-      const rec = recommendations.find((r) => r.type === type);
-      if (rec) setEditingRec(rec);
-    } else if (action === 'ask_ai') {
-      const rec = recommendations.find((r) => r.type === type);
-      if (rec) {
-        setChatInitialQuery(`Tell me more about: ${rec.title}. ${rec.description} What specific details can you share from my transaction data?`);
-        setChatOpen(true);
-      }
+  // Chat history helpers
+  const handleInsightAsk = useCallback(async (section: string, question: string) => {
+    if (!question) { setActiveChat({ section, question }); return; }
+
+    const existing = chatHistories[section] ?? [];
+    const withUser: ChatMessage[] = [...existing, { role: 'user', text: question }];
+    setChatHistories((prev) => ({ ...prev, [section]: withUser }));
+    setActiveChat({ section, question });
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: question,
+          transactions: transactions.slice(0, 50),
+          accounts,
+          history: existing.slice(-10).map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text })),
+        }),
+      });
+      const data = await res.json();
+      const reply = data.reply ?? data.message ?? 'Sorry, I couldn\'t generate a response.';
+      setChatHistories((prev) => ({ ...prev, [section]: [...(prev[section] ?? []), { role: 'ai', text: reply }] }));
+    } catch {
+      setChatHistories((prev) => ({ ...prev, [section]: [...(prev[section] ?? []), { role: 'ai', text: 'Something went wrong. Please try again.' }] }));
     }
-  }, [recommendations]);
+  }, [chatHistories, transactions, accounts]);
 
-  // ── stats ────────────────────────────────────────────────────────────────
+  const handleExpandAsk = useCallback(async (
+    chartType: 'stability' | 'growth' | 'transactions' | 'spending',
+    section: string,
+    question: string,
+  ) => {
+    setExpandedChart(chartType);
+    await handleInsightAsk(section, question);
+  }, [handleInsightAsk]);
+
+  const handleModalAsk = useCallback(async (section: string, question: string) => {
+    await handleInsightAsk(section, question);
+  }, [handleInsightAsk]);
+
+  const handleUpdateHistory = useCallback((section: string, messages: ChatMessage[]) => {
+    setChatHistories((prev) => ({ ...prev, [section]: messages }));
+  }, []);
+
+  // ── computed stats ─────────────────────────────────────────────────────────
   const totalBalance = accounts.reduce((s, a) => s + (a.balances.current ?? 0), 0);
-  const totalSpend = transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-  const totalIncome = Math.abs(transactions.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0));
-  const netFlow = totalIncome - totalSpend;
-
-  // Cash runway: months of cash remaining at current burn rate
-  const monthlyBurn = totalSpend / 3; // 90 days = 3 months
+  const totalSpend   = transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const totalIncome  = Math.abs(transactions.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0));
+  const netFlow      = totalIncome - totalSpend;
+  const monthlyBurn  = totalSpend / 3;
   const runwayMonths = monthlyBurn > 0 ? totalBalance / monthlyBurn : Infinity;
-  const runwayLabel = runwayMonths === Infinity ? 'N/A' : runwayMonths < 1 ? '< 1 mo' : `${runwayMonths.toFixed(1)} mo`;
-  const runwayColor = runwayMonths < 3 ? 'text-red-400' : runwayMonths < 6 ? 'text-amber-400' : 'text-emerald-400';
+  const runwayLabel  = runwayMonths === Infinity ? 'N/A' : runwayMonths < 1 ? '< 1 mo' : `${runwayMonths.toFixed(1)} mo`;
+  const isNetNeg     = netFlow < 0;
+  const isRunwayLow  = runwayMonths < 3;
 
-  const visibleRecs = recommendations.filter((r) => !dismissed.has(r.type));
-  const criticalCount = visibleRecs.filter((r) => r.severity === 'critical').length;
-
-  // Chart: last 60 days + 30 day forecast
-  const chartDisplayData = chartData.map((d) => ({
-    ...d,
-    date: formatDate(d.date),
-  }));
-  const historicalEnd = 59; // index where history ends
-  const todayDate = formatDate(new Date().toISOString().split('T')[0]);
+  // Cashflow summary blurb
+  const cashSummary = transactions.length > 0
+    ? `${isNetNeg ? 'Negative' : 'Positive'} net cash flow of ${formatCurrency(Math.abs(netFlow))} over 90 days. Monthly burn rate of ${formatCurrency(monthlyBurn)} with ${runwayLabel} of runway remaining. ${isRunwayLow ? 'Runway is critically low — action needed.' : 'Cash position is stable.'}`
+    : 'Connect your bank account to see a personalized cash flow summary.';
 
   if (!loaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#080B14]">
-        <div className="flex items-center gap-3 text-slate-400">
-          <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+      <div className="flex min-h-screen items-center justify-center bg-[#FAFAF8]">
+        <div className="flex items-center gap-3 text-[#9B9B9B]">
+          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
-          Loading your dashboard…
+          <span className="text-sm">Loading your dashboard…</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#080B14] font-sans">
-      {/* Gradient orbs */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-indigo-600/8 blur-[120px]" />
-        <div className="absolute top-20 right-0 h-[300px] w-[400px] rounded-full bg-violet-600/6 blur-[100px]" />
-      </div>
+    <div className="min-h-screen w-full bg-[#FAFAF8] bg-noise text-[#1A1A1A] font-sans relative">
+      <TopNav
+        accounts={accounts}
+        onGenerateReport={() => setIsReportOpen(true)}
+        onExportCSV={() => exportTransactionsCSV(transactions)}
+        onExportPDF={() => exportDashboardPDF(transactions, accounts)}
+        onDisconnect={() => { localStorage.removeItem('runwayai_data'); router.push('/'); }}
+      />
 
-      {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between border-b border-white/5 px-6 py-4 md:px-10">
-        <div className="flex items-center gap-3">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white shadow-lg shadow-indigo-500/30">
-            R
-          </div>
-          <span className="text-sm font-semibold text-white">RunwayAI</span>
-          <span className="text-slate-700">/</span>
-          <span className="text-sm text-slate-400">Dashboard</span>
-        </div>
-        <div className="flex items-center gap-3">
-          {criticalCount > 0 && (
-            <div className="flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-red-400 animate-pulse" />
-              {criticalCount} critical
+      <main className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col lg:flex-row relative">
+        {/* Left edge line */}
+        <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-px bg-[#E8E8E6]" />
+        <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-px bg-[#E8E8E6]" />
+
+        {/* ── LEFT COLUMN ─────────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0 lg:pr-8 pb-12">
+
+          {/* Zone 1: Balance Cards */}
+          <section className="pt-4 lg:pt-8 pb-8">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-5 lg:flex lg:items-start lg:gap-0">
+              {[
+                {
+                  label: 'Balance',
+                  value: formatCurrency(totalBalance),
+                  sub: `${accounts.length} account${accounts.length !== 1 ? 's' : ''}`,
+                  color: 'text-[#1A1A1A]',
+                  tooltip: 'Current operating balance across connected accounts.',
+                },
+                {
+                  label: '90-Day Spend',
+                  value: formatCurrency(totalSpend),
+                  sub: `${transactions.filter((t) => t.amount > 0).length} transactions`,
+                  color: 'text-[#1A1A1A]',
+                },
+                {
+                  label: '90-Day Income',
+                  value: formatCurrency(totalIncome),
+                  sub: `${transactions.filter((t) => t.amount < 0).length} credits`,
+                  color: 'text-[#1A1A1A]',
+                },
+                {
+                  label: 'Net Cash Flow',
+                  value: `${netFlow >= 0 ? '+' : ''}${formatCurrency(netFlow)}`,
+                  sub: 'last 90 days',
+                  color: isNetNeg ? 'text-[#D94F4F]' : 'text-[#2D8A56]',
+                  tooltip: 'Total income minus total expenses over the last 90 days.',
+                },
+                {
+                  label: 'Cash Runway',
+                  value: runwayLabel,
+                  sub: monthlyBurn > 0 ? `${formatCurrency(monthlyBurn)}/mo burn` : 'no expenses',
+                  color: isRunwayLow ? 'text-[#D94F4F]' : 'text-[#1A1A1A]',
+                  labelColor: isRunwayLow ? 'text-[#D94F4F]/80' : undefined,
+                  tooltip: 'Estimated time until cash depletion at current burn rate.',
+                },
+              ].map((stat, i) => (
+                <motion.div
+                  key={stat.label}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06, duration: 0.3, ease: 'easeOut' }}
+                  className="lg:flex-1 min-w-0"
+                >
+                  {i > 0 && <div className="hidden lg:flex items-center self-stretch px-4"><div className="w-px h-8 bg-[#E8E8E6]" /></div>}
+                  <div className="py-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className={`text-[10px] uppercase tracking-wider ${stat.labelColor ?? 'text-[#9B9B9B]'}`}>{stat.label}</p>
+                      {stat.tooltip && (
+                        <div className="relative group">
+                          <Info className="w-3 h-3 text-[#9B9B9B]" />
+                          <span className="invisible group-hover:visible absolute right-0 bottom-full mb-1 z-[60] w-48 p-2 rounded-lg bg-white border border-[#E8E8E6] text-[10px] text-[#6B6B6B] normal-case tracking-normal shadow-xl">
+                            {stat.tooltip}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-xl font-bold tabular-nums ${stat.color}`}>{stat.value}</span>
+                    <p className={`text-[10px] mt-1 ${isRunwayLow && stat.label === 'Cash Runway' ? 'text-[#D94F4F]/60' : 'text-[#9B9B9B]'}`}>{stat.sub}</p>
+                  </div>
+                </motion.div>
+              ))}
             </div>
-          )}
-          <div className="relative">
-            <button
-              onClick={() => setShowExportMenu((v) => !v)}
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-white/10"
-            >
-              Export
-            </button>
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-white/10 bg-slate-900 py-1 shadow-xl z-20">
-                <button
-                  onClick={() => { exportTransactionsCSV(transactions); setShowExportMenu(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
-                >
-                  Download CSV
-                </button>
-                <button
-                  onClick={() => { exportDashboardPDF(transactions, accounts); setShowExportMenu(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
-                >
-                  Download PDF Report
-                </button>
-                <button
-                  onClick={() => { exportLoanReadinessReport(transactions, accounts); setShowExportMenu(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
-                >
-                  🏦 Loan Readiness Report
-                </button>
+          </section>
+
+          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+
+          {/* Zone 2: Cashflow Summary */}
+          <section className="py-8">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3, duration: 0.5 }}>
+              <div className="mb-2">
+                <span className="text-[10px] uppercase tracking-widest text-[#0D7C66]/70 font-semibold flex items-center gap-1.5">
+                  <span>✦</span> Cashflow Summary
+                </span>
               </div>
-            )}
-          </div>
-          <button
-            onClick={() => {
-              localStorage.removeItem('runwayai_data');
-              router.push('/');
-            }}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-white/10"
-          >
-            Disconnect
-          </button>
-        </div>
-      </nav>
-
-      <main className="relative z-10 mx-auto max-w-6xl px-4 py-8 md:px-8">
-
-        {/* ── Alert Banner ─────────────────────────────────────────────── */}
-        <AlertBanner alerts={alerts} onDismiss={handleDismissAlert} />
-
-        {/* ── Stat cards ─────────────────────────────────────────────────── */}
-        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-5">
-          {[
-            { label: 'Total Balance', value: formatCurrency(totalBalance), sub: `${accounts.length} accounts`, color: 'text-white' },
-            { label: '90-Day Spend', value: formatCurrency(totalSpend), sub: `${transactions.filter((t) => t.amount > 0).length} transactions`, color: 'text-red-400' },
-            { label: '90-Day Income', value: formatCurrency(totalIncome), sub: `${transactions.filter((t) => t.amount < 0).length} credits`, color: 'text-emerald-400' },
-            {
-              label: 'Net Cash Flow',
-              value: `${netFlow >= 0 ? '+' : ''}${formatCurrency(netFlow)}`,
-              sub: 'last 90 days',
-              color: netFlow >= 0 ? 'text-emerald-400' : 'text-red-400',
-            },
-            {
-              label: 'Cash Runway',
-              value: runwayLabel,
-              sub: monthlyBurn > 0 ? `${formatCurrency(monthlyBurn)}/mo burn` : 'no expenses',
-              color: runwayColor,
-            },
-          ].map((s) => (
-            <div key={s.label} className={`rounded-xl border ${s.label === 'Cash Runway' && runwayMonths < 3 ? 'border-red-500/30 bg-red-500/5' : 'border-white/5 bg-slate-900/60'} p-5`}>
-              <div className="text-xs font-medium uppercase tracking-widest text-slate-500">{s.label}</div>
-              <div className={`mt-2 text-xl font-bold tabular-nums ${s.color}`}>{s.value}</div>
-              <div className="mt-1 text-xs text-slate-600">{s.sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Cash flow chart ─────────────────────────────────────────────── */}
-        <div data-pdf-chart className="mb-8 rounded-xl border border-white/5 bg-slate-900/60 p-6">
-          <div className="mb-1 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white">Cash Flow Timeline</h2>
-            <div className="flex items-center gap-4 text-xs text-slate-500">
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-4 rounded bg-indigo-500/60" />
-                Historical
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-4 rounded border border-dashed border-violet-400/60" />
-                Forecast
-              </span>
-            </div>
-          </div>
-          <p className="mb-6 text-xs text-slate-500">60-day history + 30-day projection (based on avg daily net)</p>
-
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={chartDisplayData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-              <defs>
-                <linearGradient id="gradHistorical" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gradForecast" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="#a78bfa" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: '#64748b', fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fill: '#64748b', fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v) => `$${Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <ReferenceLine
-                x={todayDate}
-                stroke="rgba(255,255,255,0.15)"
-                strokeDasharray="4 4"
-                label={{ value: 'Today', fill: '#64748b', fontSize: 10, position: 'insideTopRight' }}
-              />
-              <Area
-                type="monotone"
-                dataKey="cumulative"
-                name="cumulative net"
-                stroke="#6366f1"
-                strokeWidth={2}
-                fill="url(#gradHistorical)"
-                dot={false}
-                activeDot={{ r: 4, fill: '#6366f1' }}
-              />
-              <Area
-                type="monotone"
-                dataKey="forecast"
-                name="forecast"
-                stroke="#a78bfa"
-                strokeWidth={2}
-                strokeDasharray="5 4"
-                fill="url(#gradForecast)"
-                dot={false}
-                activeDot={{ r: 4, fill: '#a78bfa' }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* ── Category Breakdown + Transaction List ──────────────────────── */}
-        <div className="mb-8 grid gap-8 lg:grid-cols-2">
-          <CategoryBreakdown transactions={transactions} budgets={budgets} onUpdateBudgets={handleUpdateBudgets} />
-          <TransactionList transactions={transactions} />
-        </div>
-
-        {/* ── AI Recommendations ──────────────────────────────────────────── */}
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-white">AI Recommendations</h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {analyzeStatus === 'loading' && 'Analysing your transactions with GPT-4o…'}
-                {analyzeStatus === 'done' && `${visibleRecs.length} active recommendations`}
-                {analyzeStatus === 'error' && analyzeError}
+              <p className="text-sm text-[#6B6B6B] leading-relaxed">{cashSummary}</p>
+              <p className="text-xs text-[#9B9B9B] mt-2">
+                Based on {transactions.length} transactions across {accounts.length} account{accounts.length !== 1 ? 's' : ''} · Last synced just now
               </p>
+            </motion.div>
+          </section>
+
+          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+
+          {/* Zone 3: Cash Cycle & Quarter Forecast */}
+          <section className="py-8">
+            <div className="bg-white border border-[#E8E8E6] rounded-xl p-4 md:p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm uppercase tracking-widest text-[#9B9B9B] font-semibold font-mono">Cash Cycle & Quarter Forecast</h2>
+                  <p className="text-xs text-[#6B6B6B] mt-1">60-day history + 30-day projection · Cumulative net flow</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className="flex items-center gap-1.5 text-[#6B6B6B]"><span className="w-2 h-2 rounded-full bg-[#0D7C66]" />Historical</span>
+                    <span className="flex items-center gap-1.5 text-[#6BB5A5]"><span className="w-3 h-0 border-t border-dashed border-[#6BB5A5]" />Forecast</span>
+                  </div>
+                  <button onClick={() => setExpandedChart('stability')} className="p-1.5 rounded-md hover:bg-[#F0F0EE] transition-colors text-[#9B9B9B] hover:text-[#6B6B6B]">
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <StabilityChart chartData={chartData} />
+              <div className="mt-4 pt-4 border-t border-[#E8E8E6]">
+                <ContextualQuestions
+                  questions={['How does my cash flow trend?', 'Will I stay positive next quarter?', 'What is my biggest spending category?']}
+                  onAsk={(q) => handleExpandAsk('stability', 'Cash Cycle & Quarter Forecast', q)}
+                />
+              </div>
             </div>
-            {analyzeStatus === 'error' && (
-              <button
-                onClick={() => { setAnalyzeStatus('idle'); }}
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10"
-              >
-                Retry
-              </button>
-            )}
+          </section>
+
+          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+
+          {/* Zone 4: Transactions */}
+          <section className="py-8">
+            <TransactionList
+              transactions={transactions}
+              chatMessages={chatHistories['Transactions'] ?? []}
+              onAsk={(q) => handleExpandAsk('transactions', 'Transactions', q)}
+            />
+          </section>
+
+          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+
+          {/* Zone 5: Spending by Category */}
+          <section className="py-8">
+            <SpendingByCategory
+              transactions={transactions}
+              chatMessages={chatHistories['Spending by Category'] ?? []}
+              onAsk={(q) => handleExpandAsk('spending', 'Spending by Category', q)}
+            />
+          </section>
+
+          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+
+          {/* Zone 6: Growth Projection */}
+          <section className="py-8 pb-12">
+            <div className="bg-white border border-[#E8E8E6] rounded-xl p-4 md:p-6 shadow-sm">
+              <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm uppercase tracking-widest text-[#9B9B9B] font-semibold font-mono">Growth Projection</h2>
+                  <p className="text-xs text-[#6B6B6B] mt-1">24-Month Revenue Trajectory · Current path vs with strategic hires</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className="flex items-center gap-1.5 text-[#6B6B6B]"><span className="w-3 h-0 border-t border-dashed border-[#9B9B9B]" />Current</span>
+                    <span className="flex items-center gap-1.5 text-[#2D8A56]"><span className="w-3 h-0.5 bg-[#2D8A56]" />With Hires</span>
+                  </div>
+                  <button onClick={() => setExpandedChart('growth')} className="p-1.5 rounded-md hover:bg-[#F0F0EE] transition-colors text-[#9B9B9B] hover:text-[#6B6B6B]">
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <GrowthChart />
+              <div className="mt-4 pt-4 border-t border-[#E8E8E6]">
+                <ContextualQuestions
+                  questions={['What if I hire 2 people?', 'When can I afford to expand?', "What's the ROI on a second location?"]}
+                  onAsk={(q) => handleExpandAsk('growth', 'Growth Projection', q)}
+                />
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* ── Vertical Divider ─────────────────────────────────────────────── */}
+        <div className="hidden lg:block w-px bg-[#E8E8E6] self-stretch shrink-0" />
+
+        {/* ── RIGHT COLUMN — InsightPanel ──────────────────────────────────── */}
+        <div className="w-full lg:w-[380px] shrink-0 lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:overflow-hidden scrollbar-hide">
+          <div className="p-4 lg:pl-8 lg:pr-0 lg:pt-8 lg:pb-8 h-full">
+            <InsightPanel
+              recommendations={recommendations}
+              analyzeStatus={analyzeStatus}
+              activeChat={activeChat}
+              onCloseChat={() => setActiveChat(null)}
+              onOpenChat={(ctx) => {
+                if (ctx.question) { handleInsightAsk(ctx.section, ctx.question); }
+                else { setActiveChat(ctx); }
+              }}
+              chatHistories={chatHistories}
+              onUpdateHistory={handleUpdateHistory}
+              onOpenReport={() => setIsReportOpen(true)}
+              transactions={transactions}
+              accounts={accounts}
+              dismissed={dismissed}
+              approved={approved}
+              onDismiss={(type) => setDismissed((prev) => new Set([...prev, type]))}
+              onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
+            />
           </div>
-
-          {analyzeStatus === 'loading' && (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-52 animate-pulse rounded-xl border border-white/5 bg-slate-900/60"
-                />
-              ))}
-            </div>
-          )}
-
-          {analyzeStatus === 'done' && visibleRecs.length > 0 && (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {visibleRecs.map((rec) => (
-                <RecommendationCard
-                  key={rec.type}
-                  rec={approved.has(rec.type) ? { ...rec, severity: 'info' } : rec}
-                  onAction={handleAction}
-                />
-              ))}
-            </div>
-          )}
-
-          {analyzeStatus === 'done' && dismissed.size > 0 && (
-            <div className="mt-4 text-center">
-              <button
-                onClick={() => setDismissed(new Set())}
-                className="text-xs text-slate-600 hover:text-slate-400 transition-colors"
-              >
-                Restore {dismissed.size} dismissed recommendation{dismissed.size > 1 ? 's' : ''}
-              </button>
-            </div>
-          )}
-
-          {analyzeStatus === 'done' && visibleRecs.length === 0 && dismissed.size > 0 && (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-white/5 bg-slate-900/60 py-16 text-center">
-              <span className="text-3xl">✓</span>
-              <p className="text-sm text-slate-400">All recommendations dismissed.</p>
-              <button
-                onClick={() => setDismissed(new Set())}
-                className="text-xs text-indigo-400 hover:text-indigo-300"
-              >
-                Restore all
-              </button>
-            </div>
-          )}
         </div>
       </main>
 
-      {editingRec && (
-        <ActionModal
-          recommendation={editingRec}
-          transactions={transactions}
-          accounts={accounts}
-          onClose={() => setEditingRec(null)}
-          onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
-        />
-      )}
+      {/* ── Expanded Chart Modals ─────────────────────────────────────────── */}
+      <ChartModal
+        isOpen={expandedChart === 'stability'}
+        onClose={() => setExpandedChart(null)}
+        title="Cash Cycle & Quarter Forecast"
+        subtitle="60-day history + 30-day projection"
+        chatMessages={chatHistories['Cash Cycle & Quarter Forecast'] ?? []}
+        onAskInline={(q) => handleModalAsk('Cash Cycle & Quarter Forecast', q)}
+        legend={<>
+          <span className="flex items-center gap-1.5 text-[#6B6B6B]"><span className="w-2 h-2 rounded-full bg-[#0D7C66]" />Historical</span>
+          <span className="flex items-center gap-1.5 text-[#6BB5A5]"><span className="w-3 h-0 border-t border-dashed border-[#6BB5A5]" />Forecast</span>
+        </>}
+        questions={
+          <ContextualQuestions
+            questions={['Why did my balance dip?', 'Will I stay positive next quarter?', 'What is my burn rate?']}
+            onAsk={(q) => handleModalAsk('Cash Cycle & Quarter Forecast', q)}
+          />
+        }
+      >
+        <StabilityChart expanded chartData={chartData} />
+      </ChartModal>
 
-      <ChatSidebar
+      <ChartModal
+        isOpen={expandedChart === 'growth'}
+        onClose={() => setExpandedChart(null)}
+        title="Growth Projection"
+        subtitle="24-Month Revenue Trajectory"
+        chatMessages={chatHistories['Growth Projection'] ?? []}
+        onAskInline={(q) => handleModalAsk('Growth Projection', q)}
+        legend={<>
+          <span className="flex items-center gap-1.5 text-[#6B6B6B]"><span className="w-3 h-0 border-t border-dashed border-[#9B9B9B]" />Current</span>
+          <span className="flex items-center gap-1.5 text-[#2D8A56]"><span className="w-3 h-0.5 bg-[#2D8A56]" />With Hires</span>
+        </>}
+        questions={
+          <ContextualQuestions
+            questions={['What if I hire 2 instead of 3?', 'When exactly do I hit the bottleneck?', "What's the cost of each hire?"]}
+            onAsk={(q) => handleModalAsk('Growth Projection', q)}
+          />
+        }
+      >
+        <GrowthChart expanded />
+      </ChartModal>
+
+      <ChartModal
+        isOpen={expandedChart === 'transactions'}
+        onClose={() => setExpandedChart(null)}
+        title="Transactions"
+        subtitle={`${transactions.length} transactions`}
+        chatMessages={chatHistories['Transactions'] ?? []}
+        onAskInline={(q) => handleModalAsk('Transactions', q)}
+        legend={<>
+          <span className="flex items-center gap-1.5 text-[#2D8A56]"><span className="w-2 h-2 rounded-full bg-[#2D8A56]" />Income</span>
+          <span className="flex items-center gap-1.5 text-[#D94F4F]"><span className="w-2 h-2 rounded-full bg-[#D94F4F]" />Expense</span>
+        </>}
+        questions={
+          <ContextualQuestions
+            questions={['Break down my COGS', 'Show recurring vendor payments', 'Which vendors cost the most?']}
+            onAsk={(q) => handleModalAsk('Transactions', q)}
+          />
+        }
+      >
+        <TransactionList expanded transactions={transactions} />
+      </ChartModal>
+
+      <ChartModal
+        isOpen={expandedChart === 'spending'}
+        onClose={() => setExpandedChart(null)}
+        title="Spending by Category"
+        subtitle="90-day breakdown"
+        chatMessages={chatHistories['Spending by Category'] ?? []}
+        onAskInline={(q) => handleModalAsk('Spending by Category', q)}
+        legend={<>
+          <span className="flex items-center gap-1.5 text-[#0D7C66]"><span className="w-2 h-2 rounded-full bg-[#0D7C66]" />Food & Drink</span>
+          <span className="flex items-center gap-1.5 text-[#4A7FC1]"><span className="w-2 h-2 rounded-full bg-[#4A7FC1]" />Payroll</span>
+          <span className="flex items-center gap-1.5 text-[#D97706]"><span className="w-2 h-2 rounded-full bg-[#D97706]" />Rent</span>
+        </>}
+        questions={
+          <ContextualQuestions
+            questions={['Which category grew most?', 'Am I over budget?', 'Compare this quarter to last']}
+            onAsk={(q) => handleModalAsk('Spending by Category', q)}
+          />
+        }
+      >
+        <SpendingByCategory expanded transactions={transactions} />
+      </ChartModal>
+
+      <LendingReport
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
         transactions={transactions}
         accounts={accounts}
-        isOpen={chatOpen}
-        onToggle={() => setChatOpen((v) => !v)}
-        alerts={alerts}
-        initialQuery={chatInitialQuery}
-        onQueryConsumed={() => setChatInitialQuery(undefined)}
+        chartData={chartData}
+        totalBalance={totalBalance}
+        totalSpend={totalSpend}
+        totalIncome={totalIncome}
+        netFlow={netFlow}
+        monthlyBurn={monthlyBurn}
+        runwayMonths={runwayMonths}
       />
     </div>
   );
