@@ -149,8 +149,8 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(loadDismissedAlerts);
   const [budgets, setBudgets] = useState<BudgetThreshold[]>(loadBudgets);
-  const [txOpen, setTxOpen] = useState(true);
-  const [catOpen, setCatOpen] = useState(true);
+  const [txOpen, setTxOpen] = useState(false);
+  const [catOpen, setCatOpen] = useState(false);
 
   // Load data from localStorage — fall back to mock data for development
   useEffect(() => {
@@ -553,33 +553,6 @@ export default function Dashboard() {
           {/* Divider */}
           <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
 
-          {/* Active insights teaser (desktop: points to right panel; mobile: opens overlay) */}
-          {analyzeStatus === 'done' && visibleRecs.length > 0 && (
-            <div className="py-4 flex items-center justify-between">
-              <p className="text-xs text-[#9B9B9B]">
-                <span className="text-[#0D7C66]">✦</span>{' '}
-                {visibleRecs.length} active insight{visibleRecs.length !== 1 ? 's' : ''}{' '}
-                <span className="hidden lg:inline">in the panel →</span>
-              </p>
-              <button
-                onClick={() => setMobileInsightsOpen(true)}
-                className="lg:hidden text-xs text-[#0D7C66] hover:text-[#0A6B58] transition-colors font-medium"
-              >
-                View insights →
-              </button>
-            </div>
-          )}
-
-          {analyzeStatus === 'loading' && (
-            <div className="py-4 flex items-center gap-2 text-xs text-[#9B9B9B]">
-              <svg className="h-3.5 w-3.5 animate-spin text-[#0D7C66]" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              Analysing with GPT-4o…
-            </div>
-          )}
-
           {analyzeStatus === 'error' && (
             <div className="py-4 flex items-center justify-between">
               <p className="text-xs text-[#D94F4F]">{analyzeError}</p>
@@ -591,9 +564,6 @@ export default function Dashboard() {
               </button>
             </div>
           )}
-
-          {/* Divider */}
-          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
 
           {/* Zone 3: Transactions (collapsible) */}
           <div className="py-4">
