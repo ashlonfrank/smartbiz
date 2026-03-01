@@ -25,14 +25,17 @@ function LoanReadinessView({
   const [downloading, setDownloading] = useState(false);
 
   const scoreColor =
-    score.overall >= 70 ? 'text-emerald-400' :
-    score.overall >= 40 ? 'text-amber-400' : 'text-red-400';
+    score.overall >= 70 ? 'text-[#0D7C66]' :
+    score.overall >= 40 ? 'text-amber-600' : 'text-[#D94F4F]';
   const scoreBg =
-    score.overall >= 70 ? 'bg-emerald-500/20 border-emerald-500/30' :
-    score.overall >= 40 ? 'bg-amber-500/20 border-amber-500/30' : 'bg-red-500/20 border-red-500/30';
+    score.overall >= 70 ? 'bg-[#E8F5F0] border-[#0D7C66]/20' :
+    score.overall >= 40 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
   const gradeColor =
-    score.overall >= 70 ? 'text-emerald-400' :
-    score.overall >= 40 ? 'text-amber-400' : 'text-red-400';
+    score.overall >= 70 ? 'text-[#0D7C66]' :
+    score.overall >= 40 ? 'text-amber-600' : 'text-[#D94F4F]';
+
+  const barColor = (s: number) =>
+    s >= 70 ? 'bg-[#0D7C66]' : s >= 40 ? 'bg-amber-500' : 'bg-[#D94F4F]';
 
   const handleDownload = useCallback(async () => {
     setDownloading(true);
@@ -44,31 +47,32 @@ function LoanReadinessView({
   }, [transactions, accounts]);
 
   const components = [
-    { key: 'cashRunway', label: 'Cash Runway', icon: '💰' },
-    { key: 'revenueConsistency', label: 'Revenue Consistency', icon: '📊' },
-    { key: 'expenseRatio', label: 'Expense Ratio', icon: '💳' },
-    { key: 'growthTrend', label: 'Growth Trend', icon: '📈' },
-    { key: 'transactionVolume', label: 'Transaction Volume', icon: '🔄' },
+    { key: 'cashRunway',         label: 'Cash Runway',          icon: '💰' },
+    { key: 'revenueConsistency', label: 'Revenue Consistency',  icon: '📊' },
+    { key: 'expenseRatio',       label: 'Expense Ratio',        icon: '💳' },
+    { key: 'growthTrend',        label: 'Growth Trend',         icon: '📈' },
+    { key: 'transactionVolume',  label: 'Transaction Volume',   icon: '🔄' },
   ] as const;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-[#0E1225] p-6 shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-xl border border-[#E8E8E6] bg-white p-6 shadow-2xl max-h-[90vh] flex flex-col">
+
         {/* Header */}
-        <div className="mb-4 flex items-start justify-between">
+        <div className="mb-4 flex items-start justify-between border-b border-[#E8E8E6] pb-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-medium text-indigo-400 uppercase">
+              <span className="rounded-full bg-[#E8F5F0] px-2 py-0.5 text-[10px] font-medium text-[#0D7C66] uppercase">
                 {recommendation.severity}
               </span>
-              <span className="text-[10px] text-slate-500">loan readiness</span>
+              <span className="text-[10px] text-[#9B9B9B]">loan readiness</span>
             </div>
-            <h3 className="text-base font-semibold text-white">{recommendation.title}</h3>
+            <h3 className="text-base font-semibold text-[#1A1A1A]">{recommendation.title}</h3>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-300"
+            className="rounded-lg p-1.5 text-[#9B9B9B] transition-colors hover:bg-[#F5F5F3] hover:text-[#1A1A1A]"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -76,58 +80,57 @@ function LoanReadinessView({
           </button>
         </div>
 
-        <p className="mb-5 text-sm text-slate-400">{recommendation.description}</p>
+        <p className="mb-5 text-sm text-[#6B6B6B]">{recommendation.description}</p>
 
         {/* Score Badge */}
         <div className="mb-5 flex items-center gap-4">
           <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border ${scoreBg}`}>
             <div className="text-center">
               <div className={`text-2xl font-bold tabular-nums ${scoreColor}`}>{score.overall}</div>
-              <div className="text-[9px] text-slate-500">/ 100</div>
+              <div className="text-[9px] text-[#9B9B9B]">/ 100</div>
             </div>
           </div>
           <div>
             <div className={`text-sm font-semibold ${gradeColor}`}>{score.grade}</div>
-            <p className="mt-0.5 text-xs text-slate-500">{score.summary}</p>
+            <p className="mt-0.5 text-xs text-[#9B9B9B]">{score.summary}</p>
           </div>
         </div>
 
-        {/* Component Breakdown */}
+        {/* Score Breakdown */}
         <div className="mb-5 flex-1 overflow-y-auto">
-          <div className="mb-2 text-xs font-medium text-slate-300">Score Breakdown</div>
-          <div className="space-y-2.5">
+          <div className="mb-2 text-xs font-medium text-[#1A1A1A]">Score Breakdown</div>
+          <div className="space-y-3">
             {components.map(({ key, label, icon }) => {
               const comp = score.components[key];
-              const barColor =
-                comp.score >= 70 ? 'bg-emerald-500' :
-                comp.score >= 40 ? 'bg-amber-500' : 'bg-red-500';
               return (
                 <div key={key}>
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <span className="flex items-center gap-1.5 text-xs text-[#6B6B6B]">
                       <span>{icon}</span> {label}
                     </span>
-                    <span className="text-xs font-medium text-slate-300 tabular-nums">{comp.score}/100</span>
+                    <span className="text-xs font-medium text-[#1A1A1A] tabular-nums">
+                      {comp.score}/100
+                    </span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#E8E8E6]">
                     <div
-                      className={`h-full rounded-full ${barColor} transition-all duration-500`}
+                      className={`h-full rounded-full ${barColor(comp.score)} transition-all duration-500`}
                       style={{ width: `${comp.score}%` }}
                     />
                   </div>
-                  <div className="mt-0.5 text-[10px] text-slate-600">{comp.label}</div>
+                  <div className="mt-0.5 text-[10px] text-[#9B9B9B]">{comp.label}</div>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Download + Footer actions */}
+        {/* Actions */}
         <div className="space-y-2">
           <button
             onClick={handleDownload}
             disabled={downloading}
-            className="w-full rounded-lg bg-indigo-600/20 border border-indigo-500/30 py-2.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-600/30 disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full rounded-lg bg-[#E8F5F0] border border-[#0D7C66]/20 py-2.5 text-xs font-medium text-[#0D7C66] transition-colors hover:bg-[#0D7C66]/15 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {downloading ? (
               <>
@@ -135,7 +138,7 @@ function LoanReadinessView({
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
-                Generating Report...
+                Generating Report…
               </>
             ) : (
               <>
@@ -149,13 +152,13 @@ function LoanReadinessView({
           <div className="flex gap-2">
             <button
               onClick={() => { onApprove(recommendation.type); onClose(); }}
-              className="flex-1 rounded-lg bg-emerald-600/20 border border-emerald-500/30 py-2 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-600/30"
+              className="flex-1 rounded-lg bg-[#2D8A56]/10 border border-[#2D8A56]/20 py-2 text-xs font-medium text-[#2D8A56] transition-colors hover:bg-[#2D8A56]/20"
             >
               Mark as Completed
             </button>
             <button
               onClick={onClose}
-              className="flex-1 rounded-lg bg-white/5 border border-white/10 py-2 text-xs font-medium text-slate-400 transition-colors hover:bg-white/10"
+              className="flex-1 rounded-lg bg-[#F5F5F3] border border-[#E8E8E6] py-2 text-xs font-medium text-[#6B6B6B] transition-colors hover:bg-[#F0F0EE]"
             >
               Close
             </button>
@@ -214,22 +217,23 @@ function DefaultActionView({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-[#0E1225] p-6 shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-xl border border-[#E8E8E6] bg-white p-6 shadow-2xl max-h-[90vh] flex flex-col">
+
         {/* Header */}
-        <div className="mb-4 flex items-start justify-between">
+        <div className="mb-4 flex items-start justify-between border-b border-[#E8E8E6] pb-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-medium text-indigo-400 uppercase">
+              <span className="rounded-full bg-[#E8F5F0] px-2 py-0.5 text-[10px] font-medium text-[#0D7C66] uppercase">
                 {recommendation.severity}
               </span>
-              <span className="text-[10px] text-slate-500">{recommendation.type.replace(/_/g, ' ')}</span>
+              <span className="text-[10px] text-[#9B9B9B]">{recommendation.type.replace(/_/g, ' ')}</span>
             </div>
-            <h3 className="text-base font-semibold text-white">{recommendation.title}</h3>
+            <h3 className="text-base font-semibold text-[#1A1A1A]">{recommendation.title}</h3>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-300"
+            className="rounded-lg p-1.5 text-[#9B9B9B] transition-colors hover:bg-[#F5F5F3] hover:text-[#1A1A1A]"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -237,24 +241,24 @@ function DefaultActionView({
           </button>
         </div>
 
-        <p className="mb-4 text-sm text-slate-400">{recommendation.description}</p>
+        <p className="mb-4 text-sm text-[#6B6B6B]">{recommendation.description}</p>
 
         {/* Draft area */}
         <div className="mb-4 flex-1 overflow-hidden flex flex-col">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-300">AI-Generated Draft</span>
+            <span className="text-xs font-medium text-[#1A1A1A]">AI-Generated Draft</span>
             <div className="flex items-center gap-2">
               <button
                 onClick={generateDraft}
                 disabled={isGenerating}
-                className="text-[10px] text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+                className="text-[10px] text-[#0D7C66] hover:text-[#0A6B58] disabled:opacity-50 transition-colors"
               >
                 Regenerate
               </button>
               <button
                 onClick={handleCopy}
                 disabled={isGenerating || !draft}
-                className="flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-2 py-1 text-[10px] text-slate-300 hover:bg-white/10 disabled:opacity-50"
+                className="flex items-center gap-1 rounded-md bg-[#E8E8E6] hover:bg-[#E0E0DE] px-2 py-1 text-[10px] text-[#1A1A1A] disabled:opacity-50 transition-colors"
               >
                 {copied ? 'Copied!' : 'Copy'}
               </button>
@@ -262,18 +266,18 @@ function DefaultActionView({
           </div>
           <div className="flex-1 overflow-y-auto min-h-[200px]">
             {isGenerating ? (
-              <div className="flex items-center gap-2 rounded-lg border border-white/5 bg-black/20 p-4">
-                <svg className="h-4 w-4 animate-spin text-indigo-400" viewBox="0 0 24 24" fill="none">
+              <div className="flex items-center gap-2 rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-4">
+                <svg className="h-4 w-4 animate-spin text-[#0D7C66]" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
-                <span className="text-xs text-slate-400">Generating action draft with GPT-4o...</span>
+                <span className="text-xs text-[#6B6B6B]">Generating action draft with GPT-4o…</span>
               </div>
             ) : (
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                className="h-full min-h-[200px] w-full resize-none rounded-lg border border-white/5 bg-black/20 p-4 text-xs leading-relaxed text-slate-300 outline-none focus:border-indigo-500/30"
+                className="h-full min-h-[200px] w-full resize-none rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-4 text-xs leading-relaxed text-[#1A1A1A] outline-none focus:border-[#0D7C66]/50 transition-colors"
               />
             )}
           </div>
@@ -283,13 +287,13 @@ function DefaultActionView({
         <div className="flex gap-2">
           <button
             onClick={() => { onApprove(recommendation.type); onClose(); }}
-            className="flex-1 rounded-lg bg-emerald-600/20 border border-emerald-500/30 py-2 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-600/30"
+            className="flex-1 rounded-lg bg-[#2D8A56]/10 border border-[#2D8A56]/20 py-2 text-xs font-medium text-[#2D8A56] transition-colors hover:bg-[#2D8A56]/20"
           >
             Mark as Completed
           </button>
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg bg-white/5 border border-white/10 py-2 text-xs font-medium text-slate-400 transition-colors hover:bg-white/10"
+            className="flex-1 rounded-lg bg-[#F5F5F3] border border-[#E8E8E6] py-2 text-xs font-medium text-[#6B6B6B] transition-colors hover:bg-[#F0F0EE]"
           >
             Close
           </button>
