@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, Download, FileText, FileSpreadsheet } from 'lucide-react';
@@ -28,7 +28,8 @@ import {
   saveDismissedAlerts,
   suggestThresholds,
 } from '@/lib/alerts';
-import ChatSidebar from './ChatSidebar';
+import InsightsPanel from './InsightsPanel';
+import ChartModal from './ChartModal';
 import TransactionList from './TransactionList';
 import CategoryBreakdown from './CategoryBreakdown';
 import ActionModal from './ActionModal';
@@ -90,9 +91,17 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// ─── chart tooltip ─────────────────────────────────────────────────────────
+// ─── chart tooltip ────────────────────────────────────────────────────────────
 
-function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) {
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { value: number; name: string }[];
+  label?: string;
+}) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-[#E8E8E6] bg-white px-4 py-3 text-xs shadow-xl">
@@ -107,116 +116,7 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
   );
 }
 
-// ─── recommendation card ─────────────────────────────────────────────────
-
-const typeLabels: Record<string, string> = {
-  cash_flow_forecast: 'Cash Flow',
-  overdue_invoices:   'Invoices',
-  anomalies:          'Anomaly',
-  subscription_audit: 'Subscriptions',
-  payment_timing:     'Payment Timing',
-  loan_readiness:     'Loan Readiness',
-};
-
-function RecommendationCard({
-  rec,
-  onAction,
-}: {
-  rec: Recommendation;
-  onAction: (type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  const dotColor =
-    rec.severity === 'critical' ? 'bg-red-500 animate-pulse-glow' :
-    rec.severity === 'warning'  ? 'bg-amber-500' : 'bg-[#9B9B9B]';
-
-  return (
-    <div className="relative group rounded-xl border border-[#E8E8E6] bg-white p-4 shadow-sm transition-all hover:shadow-md">
-      {/* Dismiss X */}
-      <button
-        onClick={() => onAction(rec.type, 'dismiss')}
-        className="absolute top-3 right-3 rounded-lg p-1 text-[#9B9B9B] opacity-0 group-hover:opacity-100 transition-all hover:bg-[#F5F5F3] hover:text-[#1A1A1A]"
-        title="Dismiss"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M18 6L6 18M6 6l12 12" />
-        </svg>
-      </button>
-
-      <div className="flex items-start gap-3 min-w-0 pr-6">
-        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotColor}`} />
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className="text-[10px] text-[#9B9B9B] uppercase tracking-wider">
-              {rec.severity.toUpperCase()}
-            </span>
-            <span className="text-[10px] text-[#9B9B9B]">· {typeLabels[rec.type] ?? rec.type.replace(/_/g, ' ')}</span>
-          </div>
-          <h3 className="text-sm font-medium text-[#1A1A1A] leading-snug">{rec.title}</h3>
-        </div>
-      </div>
-
-      <p className="mt-3 text-xs leading-relaxed text-[#6B6B6B]">{rec.description}</p>
-
-      {/* Expandable reasoning */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="mt-3 flex items-center gap-1 text-[10px] text-[#9B9B9B] hover:text-[#6B6B6B] transition-colors"
-      >
-        <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-        {expanded ? 'Hide' : 'Show'} reasoning
-      </button>
-
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div className="mt-3 rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-3 text-xs leading-relaxed text-[#6B6B6B]">
-              <span className="font-medium text-[#1A1A1A]">Reasoning: </span>
-              {rec.reasoning}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Suggested action */}
-      <div className="mt-4 rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-3 text-xs text-[#6B6B6B]">
-        <span className="font-medium text-[#1A1A1A]">Suggested: </span>
-        {rec.suggested_action}
-      </div>
-
-      {/* Action buttons */}
-      <div className="mt-4 flex gap-2">
-        <button
-          onClick={() => onAction(rec.type, 'edit')}
-          className="flex-1 rounded-lg bg-[#E8F5F0] border border-[#0D7C66]/20 py-1.5 text-xs font-medium text-[#0D7C66] transition-colors hover:bg-[#0D7C66]/15"
-        >
-          ✎ Edit
-        </button>
-        <button
-          onClick={() => onAction(rec.type, 'ask_ai')}
-          className="flex-1 rounded-lg bg-[#E8F5F0] border border-[#0D7C66]/20 py-1.5 text-xs font-medium text-[#0D7C66] transition-colors hover:bg-[#0D7C66]/15"
-        >
-          ✦ Ask AI
-        </button>
-        <button
-          onClick={() => onAction(rec.type, 'approve')}
-          className="flex-1 rounded-lg bg-[#2D8A56]/10 border border-[#2D8A56]/20 py-1.5 text-xs font-medium text-[#2D8A56] transition-colors hover:bg-[#2D8A56]/20"
-        >
-          ✓ Done
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── main dashboard ──────────────────────────────────────────────────────────
+// ─── main dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const router = useRouter();
@@ -243,8 +143,9 @@ export default function Dashboard() {
   const [loaded, setLoaded] = useState(false);
   const [editingRec, setEditingRec] = useState<Recommendation | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [chatInitialQuery, setChatInitialQuery] = useState<string | undefined>();
-  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [chartModalOpen, setChartModalOpen] = useState(false);
+  const [chartModalPrompt, setChartModalPrompt] = useState<string | undefined>();
+  const [mobileInsightsOpen, setMobileInsightsOpen] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(loadDismissedAlerts);
   const [budgets, setBudgets] = useState<BudgetThreshold[]>(loadBudgets);
@@ -329,23 +230,6 @@ export default function Dashboard() {
     }));
   }, [approved, dismissed]);
 
-  const handleAction = useCallback((type: string, action: 'approve' | 'edit' | 'dismiss' | 'ask_ai') => {
-    if (action === 'dismiss') {
-      setDismissed((prev) => new Set([...prev, type]));
-    } else if (action === 'approve') {
-      setApproved((prev) => new Set([...prev, type]));
-    } else if (action === 'edit') {
-      const rec = recommendations.find((r) => r.type === type);
-      if (rec) setEditingRec(rec);
-    } else if (action === 'ask_ai') {
-      const rec = recommendations.find((r) => r.type === type);
-      if (rec) {
-        setChatInitialQuery(`Tell me more about: ${rec.title}. ${rec.description} What specific details can you share from my transaction data?`);
-        setMobileChatOpen(true);
-      }
-    }
-  }, [recommendations]);
-
   // ── stats ─────────────────────────────────────────────────────────────────
   const totalBalance = accounts.reduce((s, a) => s + (a.balances.current ?? 0), 0);
   const totalSpend = transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -356,9 +240,35 @@ export default function Dashboard() {
   const runwayLabel = runwayMonths === Infinity ? 'N/A' : runwayMonths < 1 ? '< 1 mo' : `${runwayMonths.toFixed(1)} mo`;
   const runwayDanger = runwayMonths < 3;
 
-  const visibleRecs = recommendations.filter((r) => !dismissed.has(r.type));
+  // Safety floor = 1 week of burn (~1 month / 4)
+  const safetyFloor = Math.round(monthlyBurn / 4);
+
+  const visibleRecs = recommendations.filter((r) => !dismissed.has(r.type) && !approved.has(r.type));
+
   const chartDisplayData = chartData.map((d) => ({ ...d, date: formatDate(d.date) }));
   const todayDate = formatDate(new Date().toISOString().split('T')[0]);
+
+  // Dynamic chart prompt pills from real data
+  const chartPrompts = useMemo(() => {
+    const spendTx = transactions.filter((t) => t.amount > 0);
+    const merchantTotals: Record<string, number> = {};
+    for (const tx of spendTx) {
+      const key = tx.merchant_name ?? tx.name;
+      merchantTotals[key] = (merchantTotals[key] ?? 0) + tx.amount;
+    }
+    const topMerchant =
+      Object.entries(merchantTotals).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'my top vendor';
+
+    const historicalDips = chartData.filter((d) => !d.forecast && d.net < 0);
+    historicalDips.sort((a, b) => a.net - b.net);
+    const dipDate = historicalDips[0] ? formatDate(historicalDips[0].date) : 'recently';
+
+    return [
+      `Why did my balance dip on ${dipDate}?`,
+      `Can I afford a bigger ${topMerchant} order next month?`,
+      'Will I stay above my reserve next quarter?',
+    ];
+  }, [transactions, chartData]);
 
   const statCards = [
     { label: 'Total Balance', value: formatCurrency(totalBalance), sub: `${accounts.length} accounts`, danger: false },
@@ -524,15 +434,27 @@ export default function Dashboard() {
                 <h2 className="text-sm uppercase tracking-widest text-[#9B9B9B] font-semibold font-mono">
                   Cash Flow Timeline
                 </h2>
-                <div className="flex items-center gap-4 text-[10px] text-[#9B9B9B]">
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-4 rounded" style={{ backgroundColor: '#0D7C66', opacity: 0.7 }} />
-                    Historical
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-4 rounded border border-dashed" style={{ borderColor: '#6BB5A5' }} />
-                    Forecast
-                  </span>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4 text-[10px] text-[#9B9B9B]">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-4 rounded" style={{ backgroundColor: '#0D7C66', opacity: 0.7 }} />
+                      Historical
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-4 rounded border border-dashed" style={{ borderColor: '#6BB5A5' }} />
+                      Forecast
+                    </span>
+                  </div>
+                  {/* Expand button */}
+                  <button
+                    onClick={() => { setChartModalPrompt(undefined); setChartModalOpen(true); }}
+                    className="rounded-lg p-1.5 text-[#9B9B9B] transition-colors hover:bg-[#F5F5F3] hover:text-[#1A1A1A]"
+                    title="Expand chart"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                    </svg>
+                  </button>
                 </div>
               </div>
               <p className="mb-6 text-xs text-[#6B6B6B]">60-day history + 30-day projection</p>
@@ -570,6 +492,19 @@ export default function Dashboard() {
                     strokeDasharray="4 4"
                     label={{ value: 'Today', fill: '#9B9B9B', fontSize: 10, position: 'insideTopRight' }}
                   />
+                  {/* Safety floor */}
+                  <ReferenceLine
+                    y={safetyFloor}
+                    stroke="#D97706"
+                    strokeDasharray="4 3"
+                    strokeWidth={1.5}
+                    label={{
+                      value: `Reserve (${formatCurrency(safetyFloor)})`,
+                      fill: '#D97706',
+                      fontSize: 9,
+                      position: 'insideTopRight',
+                    }}
+                  />
                   <Area
                     type="monotone"
                     dataKey="cumulative"
@@ -596,7 +531,66 @@ export default function Dashboard() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+
+            {/* Chart AI prompt pills */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {chartPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  onClick={() => {
+                    setChartModalPrompt(prompt);
+                    setChartModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 rounded-full border border-[#E8E8E6] bg-white px-3 py-2 text-xs text-[#6B6B6B] hover:bg-[#F5F5F3] shadow-sm transition-colors"
+                >
+                  <span className="text-[#0D7C66] text-[10px]">✦</span>
+                  {prompt}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {/* Divider */}
+          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+
+          {/* Active insights teaser (desktop: points to right panel; mobile: opens overlay) */}
+          {analyzeStatus === 'done' && visibleRecs.length > 0 && (
+            <div className="py-4 flex items-center justify-between">
+              <p className="text-xs text-[#9B9B9B]">
+                <span className="text-[#0D7C66]">✦</span>{' '}
+                {visibleRecs.length} active insight{visibleRecs.length !== 1 ? 's' : ''}{' '}
+                <span className="hidden lg:inline">in the panel →</span>
+              </p>
+              <button
+                onClick={() => setMobileInsightsOpen(true)}
+                className="lg:hidden text-xs text-[#0D7C66] hover:text-[#0A6B58] transition-colors font-medium"
+              >
+                View insights →
+              </button>
+            </div>
+          )}
+
+          {analyzeStatus === 'loading' && (
+            <div className="py-4 flex items-center gap-2 text-xs text-[#9B9B9B]">
+              <svg className="h-3.5 w-3.5 animate-spin text-[#0D7C66]" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Analysing with GPT-4o…
+            </div>
+          )}
+
+          {analyzeStatus === 'error' && (
+            <div className="py-4 flex items-center justify-between">
+              <p className="text-xs text-[#D94F4F]">{analyzeError}</p>
+              <button
+                onClick={() => setAnalyzeStatus('idle')}
+                className="rounded-md border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-1.5 text-xs text-[#1A1A1A] hover:bg-[#F0F0EE]"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
           {/* Divider */}
           <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
@@ -672,120 +666,52 @@ export default function Dashboard() {
               )}
             </AnimatePresence>
           </div>
-
-          {/* Divider */}
-          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
-
-          {/* Zone 5: AI Recommendations */}
-          <div className="py-8">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-sm uppercase tracking-widest text-[#9B9B9B] font-semibold font-mono">
-                  AI Recommendations
-                </h2>
-                <p className="mt-0.5 text-xs text-[#9B9B9B]">
-                  {analyzeStatus === 'loading' && 'Analysing with GPT-4o…'}
-                  {analyzeStatus === 'done' && `${visibleRecs.length} active`}
-                  {analyzeStatus === 'error' && analyzeError}
-                </p>
-              </div>
-              {analyzeStatus === 'error' && (
-                <button
-                  onClick={() => setAnalyzeStatus('idle')}
-                  className="rounded-md border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-1.5 text-xs text-[#1A1A1A] hover:bg-[#F0F0EE]"
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-
-            {analyzeStatus === 'loading' && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-52 animate-pulse rounded-xl border border-[#E8E8E6] bg-[#F5F5F3]" />
-                ))}
-              </div>
-            )}
-
-            {analyzeStatus === 'done' && visibleRecs.length > 0 && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {visibleRecs.map((rec) => (
-                  <RecommendationCard
-                    key={rec.type}
-                    rec={approved.has(rec.type) ? { ...rec, severity: 'info' } : rec}
-                    onAction={handleAction}
-                  />
-                ))}
-              </div>
-            )}
-
-            {analyzeStatus === 'done' && dismissed.size > 0 && (
-              <div className="mt-4 text-center">
-                <button
-                  onClick={() => setDismissed(new Set())}
-                  className="text-xs text-[#9B9B9B] hover:text-[#6B6B6B] transition-colors"
-                >
-                  Restore {dismissed.size} dismissed recommendation{dismissed.size > 1 ? 's' : ''}
-                </button>
-              </div>
-            )}
-
-            {analyzeStatus === 'done' && visibleRecs.length === 0 && dismissed.size > 0 && (
-              <div className="flex flex-col items-center gap-3 rounded-xl border border-[#E8E8E6] bg-white py-16 text-center shadow-sm">
-                <span className="text-2xl text-[#0D7C66]">✓</span>
-                <p className="text-sm text-[#6B6B6B]">All recommendations dismissed.</p>
-                <button
-                  onClick={() => setDismissed(new Set())}
-                  className="text-xs text-[#0D7C66] hover:text-[#0A6B58]"
-                >
-                  Restore all
-                </button>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* ── Column divider ─────────────────────────────────────────────── */}
         <div className="hidden lg:block w-px bg-[#E8E8E6] self-stretch" />
 
-        {/* ── RIGHT COLUMN — always-visible AI panel ─────────────────────── */}
+        {/* ── RIGHT COLUMN — Insights Panel ──────────────────────────────── */}
         <div className="hidden lg:flex lg:w-[380px] shrink-0 lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:overflow-hidden flex-col">
-          <ChatSidebar
+          <InsightsPanel
+            recommendations={recommendations}
             transactions={transactions}
             accounts={accounts}
-            isOpen={true}
-            onToggle={() => {}}
             alerts={alerts}
-            initialQuery={chatInitialQuery}
-            onQueryConsumed={() => setChatInitialQuery(undefined)}
-            inline={true}
+            approved={approved}
+            dismissed={dismissed}
+            analyzeStatus={analyzeStatus}
+            onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
+            onDismiss={(type) => setDismissed((prev) => new Set([...prev, type]))}
+            onTakeAction={(rec) => setEditingRec(rec)}
           />
         </div>
       </div>
 
-      {/* ── Mobile chat FAB ────────────────────────────────────────────────── */}
+      {/* ── Mobile insights FAB ─────────────────────────────────────────────── */}
       <button
-        onClick={() => setMobileChatOpen(true)}
+        onClick={() => setMobileInsightsOpen(true)}
         className="lg:hidden fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-[#0D7C66] text-white shadow-lg shadow-[#0D7C66]/30 transition-all hover:bg-[#0A6B58] hover:-translate-y-0.5"
-        title="Ask RunwayAI"
+        title="View Insights"
       >
         <span className="text-lg">✦</span>
       </button>
 
-      {/* Mobile chat overlay */}
+      {/* Mobile InsightsPanel overlay */}
       <AnimatePresence>
-        {mobileChatOpen && (
+        {mobileInsightsOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
             className="lg:hidden fixed inset-0 z-50 flex flex-col bg-[#FAFAF8]"
           >
-            <div className="flex items-center justify-between border-b border-[#E8E8E6] px-4 py-3">
-              <span className="text-sm font-semibold text-[#1A1A1A]">✦ RunwayAI Chat</span>
+            <div className="flex items-center justify-between border-b border-[#E8E8E6] px-4 py-3 shrink-0">
+              <span className="text-sm font-semibold text-[#1A1A1A]">✦ RunwayAI Insights</span>
               <button
-                onClick={() => setMobileChatOpen(false)}
-                className="rounded-lg p-1.5 text-[#9B9B9B] hover:bg-[#F5F5F3] hover:text-[#1A1A1A]"
+                onClick={() => setMobileInsightsOpen(false)}
+                className="rounded-lg p-1.5 text-[#9B9B9B] hover:bg-[#F5F5F3] hover:text-[#1A1A1A] transition-colors"
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M18 6L6 18M6 6l12 12" />
@@ -793,22 +719,36 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
-              <ChatSidebar
+              <InsightsPanel
+                recommendations={recommendations}
                 transactions={transactions}
                 accounts={accounts}
-                isOpen={true}
-                onToggle={() => setMobileChatOpen(false)}
                 alerts={alerts}
-                initialQuery={chatInitialQuery}
-                onQueryConsumed={() => setChatInitialQuery(undefined)}
-                inline={true}
+                approved={approved}
+                dismissed={dismissed}
+                analyzeStatus={analyzeStatus}
+                onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
+                onDismiss={(type) => setDismissed((prev) => new Set([...prev, type]))}
+                onTakeAction={(rec) => { setEditingRec(rec); setMobileInsightsOpen(false); }}
               />
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Action Modal */}
+      {/* ── Chart Modal ─────────────────────────────────────────────────────── */}
+      {chartModalOpen && (
+        <ChartModal
+          chartData={chartData}
+          transactions={transactions}
+          accounts={accounts}
+          initialPrompt={chartModalPrompt}
+          safetyFloor={safetyFloor}
+          onClose={() => { setChartModalOpen(false); setChartModalPrompt(undefined); }}
+        />
+      )}
+
+      {/* ── Action Modal ────────────────────────────────────────────────────── */}
       {editingRec && (
         <ActionModal
           recommendation={editingRec}
