@@ -202,8 +202,7 @@ export default function Dashboard() {
   if (!loaded) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#FAFAF8]">
-        <div style={{position:'fixed',top:0,left:0,right:0,background:'red',color:'white',textAlign:'center',padding:'8px',zIndex:9999,fontSize:'14px',fontWeight:'bold'}}>NEW UI v2 — LOADING</div>
-        <div className="flex items-center gap-3 text-[#9B9B9B]">
+<div className="flex items-center gap-3 text-[#9B9B9B]">
           <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
