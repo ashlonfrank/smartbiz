@@ -57,7 +57,7 @@ function LoanReadinessView({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-xl border border-[#E8E8E6] bg-white p-6 shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="relative w-full max-w-2xl rounded-xl border border-[#E8E8E6] bg-white p-6 shadow-2xl max-h-[90vh] flex flex-col">
 
         {/* Header */}
         <div className="mb-4 flex items-start justify-between border-b border-[#E8E8E6] pb-4">
@@ -218,7 +218,7 @@ function DefaultActionView({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-xl border border-[#E8E8E6] bg-white p-6 shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="relative w-full max-w-2xl rounded-xl border border-[#E8E8E6] bg-white p-6 shadow-2xl max-h-[90vh] flex flex-col">
 
         {/* Header */}
         <div className="mb-4 flex items-start justify-between border-b border-[#E8E8E6] pb-4">
@@ -264,9 +264,9 @@ function DefaultActionView({
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto min-h-[200px]">
+          <div className="flex-1 overflow-y-auto min-h-[320px]">
             {isGenerating ? (
-              <div className="flex items-center gap-2 rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-4">
+              <div className="flex items-center gap-2 rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-4 min-h-[320px]">
                 <svg className="h-4 w-4 animate-spin text-[#0D7C66]" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -277,7 +277,7 @@ function DefaultActionView({
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                className="h-full min-h-[200px] w-full resize-none rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-4 text-xs leading-relaxed text-[#1A1A1A] outline-none focus:border-[#0D7C66]/50 transition-colors"
+                className="h-full min-h-[320px] w-full resize-none rounded-lg border border-[#E8E8E6] bg-[#F5F5F3] p-4 text-xs leading-relaxed text-[#1A1A1A] outline-none focus:border-[#0D7C66]/50 transition-colors"
               />
             )}
           </div>
