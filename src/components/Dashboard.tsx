@@ -13,7 +13,8 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Transaction, Account, Recommendation, DailyFlow } from '@/lib/types';
-import { exportTransactionsCSV, exportDashboardPDF } from '@/lib/export';
+import { exportTransactionsCSV, exportDashboardPDF, exportLoanReadinessReport } from '@/lib/export';
+import { mockTransactions, mockAccounts } from '@/lib/mock-data';
 import {
   Alert,
   BudgetThreshold,
@@ -104,6 +105,7 @@ const typeLabels: Record<string, string> = {
   anomalies:          'Anomaly Detection',
   subscription_audit: 'Subscription Audit',
   payment_timing:     'Payment Timing',
+  loan_readiness:     'Loan Readiness',
 };
 
 const typeIcons: Record<string, string> = {
@@ -112,6 +114,7 @@ const typeIcons: Record<string, string> = {
   anomalies:          '⚠️',
   subscription_audit: '🔄',
   payment_timing:     '⏰',
+  loan_readiness:     '🏦',
 };
 
 // ─── custom tooltip ──────────────────────────────────────────────────────────
@@ -256,17 +259,21 @@ export default function Dashboard() {
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(loadDismissedAlerts);
   const [budgets, setBudgets] = useState<BudgetThreshold[]>(loadBudgets);
 
-  // Load data from localStorage
+  // Load data from localStorage — fall back to mock data for development
   useEffect(() => {
     const raw = localStorage.getItem('runwayai_data');
-    if (!raw) {
-      router.replace('/');
-      return;
+    let tx: Transaction[];
+    let accts: Account[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as { transactions: Transaction[]; accounts: Account[] };
+      tx = parsed.transactions;
+      accts = parsed.accounts;
+    } else {
+      // No Plaid data — seed with mock restaurant data for development
+      tx = mockTransactions;
+      accts = mockAccounts;
+      localStorage.setItem('runwayai_data', JSON.stringify({ transactions: tx, accounts: accts }));
     }
-    const { transactions: tx, accounts: accts } = JSON.parse(raw) as {
-      transactions: Transaction[];
-      accounts: Account[];
-    };
     setTransactions(tx);
     setAccounts(accts);
     setChartData(buildChartData(tx));
@@ -436,6 +443,12 @@ export default function Dashboard() {
                   className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
                 >
                   Download PDF Report
+                </button>
+                <button
+                  onClick={() => { exportLoanReadinessReport(transactions, accounts); setShowExportMenu(false); }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/5"
+                >
+                  🏦 Loan Readiness Report
                 </button>
               </div>
             )}
