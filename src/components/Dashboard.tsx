@@ -318,8 +318,14 @@ export default function Dashboard() {
 
   const growthProjectionData = useMemo(() => {
     const [m1, m2, m3] = monthlyRevenue;
-    if (!m1 || !m3) return [];
-    const rawRate = ((m3 - m1) / m1) / 2;
+    // Require at least the most recent month of revenue data
+    const baseline = m3 || m2 || m1;
+    if (!baseline) return [];
+
+    // Calculate growth rate from whatever historical data we have;
+    // fall back to a neutral 5 % monthly growth if only one bucket exists.
+    const older = m1 || m2;
+    const rawRate = older && older !== baseline ? ((baseline - older) / older) / 2 : 0.05;
     const clampedRate = Math.max(-0.15, Math.min(0.15, rawRate));
 
     const now = new Date();
@@ -328,12 +334,13 @@ export default function Dashboard() {
       return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
     };
 
-    const data: { month: string; historical?: number; projected?: number }[] = [
-      { month: monthLabel(-2), historical: Math.round(m1) },
-      { month: monthLabel(-1), historical: Math.round(m2) },
-      { month: monthLabel(0),  historical: Math.round(m3), projected: Math.round(m3) },
-    ];
-    let current = m3;
+    const data: { month: string; historical?: number; projected?: number }[] = [];
+    // Only include historical months that have data
+    if (m1) data.push({ month: monthLabel(-2), historical: Math.round(m1) });
+    if (m2) data.push({ month: monthLabel(-1), historical: Math.round(m2) });
+    data.push({ month: monthLabel(0), historical: Math.round(baseline), projected: Math.round(baseline) });
+
+    let current = baseline;
     for (let i = 1; i <= 21; i++) {
       current = current * (1 + clampedRate);
       data.push({ month: monthLabel(i), projected: Math.round(current) });
