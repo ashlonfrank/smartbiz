@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { Transaction, Account, Recommendation } from '@/lib/types';
+import { Transaction, Account, Recommendation, BusinessProfile } from '@/lib/types';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-function buildPrompt(transactions: Transaction[], accounts: Account[]): string {
+function buildPrompt(transactions: Transaction[], accounts: Account[], businessProfile?: BusinessProfile | null): string {
   const totalBalance = accounts.reduce((sum, a) => sum + (a.balances.current ?? 0), 0);
   const totalAvailable = accounts.reduce((sum, a) => sum + (a.balances.available ?? 0), 0);
 
@@ -60,7 +60,13 @@ function buildPrompt(transactions: Transaction[], accounts: Account[]): string {
   const monthlyBurn = totalSpend / 3;
   const cashRunwayMonths = monthlyBurn > 0 ? (totalBalance / monthlyBurn).toFixed(1) : 'N/A';
 
+  let profileContext = '';
+  if (businessProfile) {
+    profileContext = `\n## Business Context\n- Business type: ${businessProfile.businessType}\n- Business stage: ${businessProfile.stage}\n- Owner priorities: ${businessProfile.priorities.join(', ')}\n\nTailor your recommendations to this context. A ${businessProfile.businessType} business in the "${businessProfile.stage}" stage with these priorities will benefit most from actionable, specific advice related to their situation.\n`;
+  }
+
   return `You are a financial AI analyst for a small business. Analyse the following financial data and return exactly 6 recommendations as a JSON array.
+${profileContext}
 
 ## Account Summary
 - Total current balance: $${totalBalance.toFixed(2)}
@@ -131,16 +137,17 @@ Rules:
 
 export async function POST(request: NextRequest) {
   try {
-    const { transactions, accounts } = await request.json() as {
+    const { transactions, accounts, businessProfile } = await request.json() as {
       transactions: Transaction[];
       accounts: Account[];
+      businessProfile?: BusinessProfile | null;
     };
 
     if (!transactions?.length) {
       return NextResponse.json({ error: 'transactions array is required' }, { status: 400 });
     }
 
-    const prompt = buildPrompt(transactions, accounts ?? []);
+    const prompt = buildPrompt(transactions, accounts ?? [], businessProfile);
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',

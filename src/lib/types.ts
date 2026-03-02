@@ -52,3 +52,30 @@ export interface DailyFlow {
   cumulative: number;
   forecast?: number;
 }
+
+// ── Onboarding / Business Profile ──────────────────────────────────
+
+export type BusinessType = 'Restaurant' | 'Retail' | 'Service' | 'E-commerce' | 'Other';
+export type BusinessStage = 'Just Starting' | 'Surviving' | 'Stabilizing' | 'Growing' | 'Scaling';
+export type Priority =
+  | 'Understand my cash flow'
+  | 'Reduce expenses'
+  | 'Hire or expand'
+  | 'Get a loan'
+  | 'Forecast growth'
+  | 'Track recurring costs';
+
+export interface BusinessProfile {
+  businessType: BusinessType;
+  stage: BusinessStage;
+  priorities: Priority[];
+  completedOnboarding: boolean;
+}
+
+// ── Insight Feedback ───────────────────────────────────────────────
+
+export interface InsightFeedback {
+  vote: 'up' | 'down';
+  comment?: string;
+  timestamp: number;
+}

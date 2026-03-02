@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, Download, FileText, FileSpreadsheet } from 'lucide-react';
@@ -14,7 +14,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { Transaction, Account, Recommendation, DailyFlow } from '@/lib/types';
+import { Transaction, Account, Recommendation, DailyFlow, BusinessProfile } from '@/lib/types';
 import { exportTransactionsCSV, exportDashboardPDF, exportLoanReadinessReport } from '@/lib/export';
 import { mockTransactions, mockAccounts } from '@/lib/mock-data';
 import {
@@ -30,10 +30,10 @@ import {
 } from '@/lib/alerts';
 import InsightsPanel from './InsightsPanel';
 import ChartModal from './ChartModal';
+import GrowthChartModal from './GrowthChartModal';
 import TransactionList from './TransactionList';
 import CategoryBreakdown from './CategoryBreakdown';
 import ActionModal from './ActionModal';
-import AlertBanner from './AlertBanner';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -116,6 +116,18 @@ function ChartTooltip({
   );
 }
 
+function GrowthTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  const entry = payload.find((p) => p.value != null);
+  if (!entry) return null;
+  return (
+    <div className="rounded-lg border border-[#E8E8E6] bg-white px-3 py-2 text-xs shadow-xl">
+      <div className="font-semibold text-[#1A1A1A]">{label}</div>
+      <div className="text-[#6B6B6B] mt-0.5">Revenue: <span className="font-bold text-[#1A1A1A]">{formatCurrency(entry.value)}</span></div>
+    </div>
+  );
+}
+
 // ─── main dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -143,6 +155,7 @@ export default function Dashboard() {
   const [loaded, setLoaded] = useState(false);
   const [editingRec, setEditingRec] = useState<Recommendation | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [chartModalOpen, setChartModalOpen] = useState(false);
   const [chartModalPrompt, setChartModalPrompt] = useState<string | undefined>();
   const [mobileInsightsOpen, setMobileInsightsOpen] = useState(false);
@@ -151,6 +164,11 @@ export default function Dashboard() {
   const [budgets, setBudgets] = useState<BudgetThreshold[]>(loadBudgets);
   const [txOpen, setTxOpen] = useState(false);
   const [catOpen, setCatOpen] = useState(false);
+  const [syncedAt] = useState(() => new Date());
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
+  const [externalPrompt, setExternalPrompt] = useState<string | undefined>();
+  const [growthModalOpen, setGrowthModalOpen] = useState(false);
+  const [growthModalPrompt, setGrowthModalPrompt] = useState<string | undefined>();
 
   // Load data from localStorage — fall back to mock data for development
   useEffect(() => {
@@ -169,6 +187,13 @@ export default function Dashboard() {
     setTransactions(tx);
     setAccounts(accts);
     setChartData(buildChartData(tx));
+
+    // Load business profile
+    try {
+      const profileRaw = localStorage.getItem('runwayai_profile');
+      if (profileRaw) setBusinessProfile(JSON.parse(profileRaw));
+    } catch { /* ignore */ }
+
     setLoaded(true);
   }, [router]);
 
@@ -179,7 +204,7 @@ export default function Dashboard() {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: tx, accounts: accts }),
+        body: JSON.stringify({ transactions: tx, accounts: accts, businessProfile }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Analysis failed');
@@ -270,12 +295,63 @@ export default function Dashboard() {
     ];
   }, [transactions, chartData]);
 
+  // ── Growth projection ─────────────────────────────────────────────────────
+  const showGrowthProjection = businessProfile?.priorities?.some(
+    (p) => p === 'Hire or expand' || p === 'Forecast growth'
+  ) ?? false;
+
+  const monthlyRevenue = useMemo(() => {
+    const now = new Date();
+    const buckets = [0, 0, 0]; // [oldest, middle, newest]
+    for (const t of transactions.filter((t) => t.amount < 0)) {
+      const daysAgo = Math.floor((now.getTime() - new Date(t.date).getTime()) / 86400000);
+      if (daysAgo <= 30) buckets[2] += Math.abs(t.amount);
+      else if (daysAgo <= 60) buckets[1] += Math.abs(t.amount);
+      else buckets[0] += Math.abs(t.amount);
+    }
+    return buckets;
+  }, [transactions]);
+
+  const growthProjectionData = useMemo(() => {
+    const [m1, m2, m3] = monthlyRevenue;
+    if (!m1 || !m3) return [];
+    const rawRate = ((m3 - m1) / m1) / 2;
+    const clampedRate = Math.max(-0.15, Math.min(0.15, rawRate));
+
+    const now = new Date();
+    const monthLabel = (offset: number) => {
+      const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    };
+
+    const data: { month: string; historical?: number; projected?: number }[] = [
+      { month: monthLabel(-2), historical: Math.round(m1) },
+      { month: monthLabel(-1), historical: Math.round(m2) },
+      { month: monthLabel(0),  historical: Math.round(m3), projected: Math.round(m3) },
+    ];
+    let current = m3;
+    for (let i = 1; i <= 21; i++) {
+      current = current * (1 + clampedRate);
+      data.push({ month: monthLabel(i), projected: Math.round(current) });
+    }
+    return data;
+  }, [monthlyRevenue]);
+
+  const growthPrompts = useMemo(() => {
+    const targetRevenue = monthlyRevenue[2] ? formatCurrency(monthlyRevenue[2] * 2) : '$X';
+    const prompts = [`When will I hit ${targetRevenue}/month in revenue?`];
+    if (businessProfile?.priorities.includes('Hire or expand')) {
+      prompts.push('How many hires can I afford this quarter?');
+    }
+    return prompts;
+  }, [monthlyRevenue, businessProfile]);
+
   const statCards = [
     { label: 'Total Balance', value: formatCurrency(totalBalance), sub: `${accounts.length} accounts`, danger: false },
     { label: '90-Day Spend', value: formatCurrency(totalSpend), sub: `${transactions.filter((t) => t.amount > 0).length} transactions`, danger: false },
-    { label: '90-Day Income', value: formatCurrency(totalIncome), sub: `${transactions.filter((t) => t.amount < 0).length} credits`, danger: false },
-    { label: 'Net Cash Flow', value: `${netFlow >= 0 ? '+' : ''}${formatCurrency(netFlow)}`, sub: 'last 90 days', danger: netFlow < 0 },
-    { label: 'Cash Runway', value: runwayLabel, sub: monthlyBurn > 0 ? `${formatCurrency(monthlyBurn)}/mo burn` : 'no expenses', danger: runwayDanger },
+    { label: '90-Day Income', value: formatCurrency(totalIncome), sub: `${transactions.filter((t) => t.amount < 0).length} deposits`, danger: false },
+    { label: 'Net Cash Flow', value: `${netFlow >= 0 ? '+' : ''}${formatCurrency(netFlow)}`, sub: 'last 90 days', danger: netFlow < 0, tooltip: 'Total income minus total expenses over the last 90 days' },
+    { label: 'Cash Runway', value: runwayLabel, sub: monthlyBurn > 0 ? `${formatCurrency(monthlyBurn)}/mo burn` : 'no expenses', danger: runwayDanger, tooltip: 'How long your current balance will last at your current burn rate' },
   ];
 
   if (!loaded) {
@@ -297,25 +373,65 @@ export default function Dashboard() {
 
       {/* ── Nav ──────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 bg-[#FAFAF8] border-b border-[#E8E8E6] px-4 md:px-8 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-[#1A1A1A] text-sm tracking-tight">RunwayAI</span>
-          <span className="text-[#E8E8E6]">/</span>
-          <span className="text-sm text-[#9B9B9B]">Dashboard</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Live indicator */}
-          <div className="hidden sm:flex items-center gap-1.5 text-xs text-[#6B6B6B]">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Connected
-          </div>
+        <span className="font-bold text-[#1A1A1A] text-sm tracking-tight">RunwayAI</span>
+        <div className="flex items-center gap-3">
+          {/* Account chip + dropdown */}
+          {accounts.length > 0 && (
+            <div className="hidden sm:flex items-center gap-2">
+              <div className="relative">
+                <button
+                  onClick={() => { setShowAccountMenu((v) => !v); setShowExportMenu(false); }}
+                  className="flex items-center gap-1.5 rounded-md border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-1.5 text-xs text-[#6B6B6B] hover:bg-[#F0F0EE] transition-colors"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="max-w-[140px] truncate">{accounts[0].name}</span>
+                  <ChevronRight className="h-3 w-3 rotate-90 text-[#9B9B9B]" />
+                </button>
+                <AnimatePresence>
+                  {showAccountMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 5 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute left-0 top-full mt-1 w-44 rounded-lg border border-[#E8E8E6] bg-white py-1 shadow-xl z-20"
+                    >
+                      <button
+                        onClick={() => setShowAccountMenu(false)}
+                        className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-[#1A1A1A] hover:bg-[#F5F5F3]"
+                      >
+                        <span className="text-[#9B9B9B]">+</span>
+                        Add an account
+                      </button>
+                      <button
+                        onClick={() => { localStorage.removeItem('runwayai_data'); localStorage.removeItem('runwayai_profile'); router.push('/'); }}
+                        className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-red-500 hover:bg-red-50"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+                        </svg>
+                        Remove account
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <span className="text-[10px] text-[#9B9B9B]">
+                · Synced {Math.round((Date.now() - syncedAt.getTime()) / 60000) < 1
+                  ? 'just now'
+                  : `${Math.round((Date.now() - syncedAt.getTime()) / 60000)}m ago`}
+              </span>
+            </div>
+          )}
           {/* Export dropdown */}
           <div className="relative">
             <button
-              onClick={() => setShowExportMenu((v) => !v)}
+              onClick={() => { setShowExportMenu((v) => !v); setShowAccountMenu(false); }}
               className="flex items-center gap-1.5 rounded-md border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-1.5 text-xs font-medium text-[#1A1A1A] transition-colors hover:bg-[#F0F0EE]"
             >
               <Download className="h-3.5 w-3.5" />
               Export
+              <ChevronRight className="h-3 w-3 rotate-90 text-[#9B9B9B]" />
             </button>
             <AnimatePresence>
               {showExportMenu && (
@@ -351,12 +467,6 @@ export default function Dashboard() {
               )}
             </AnimatePresence>
           </div>
-          <button
-            onClick={() => { localStorage.removeItem('runwayai_data'); router.push('/'); }}
-            className="rounded-md border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-1.5 text-xs font-medium text-[#1A1A1A] transition-colors hover:bg-[#F0F0EE]"
-          >
-            Disconnect
-          </button>
         </div>
       </nav>
 
@@ -370,26 +480,30 @@ export default function Dashboard() {
         {/* ── LEFT COLUMN ────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 lg:pr-8 pb-12">
 
-          {/* Alert Banner */}
-          <div className="pt-4">
-            <AlertBanner alerts={alerts} onDismiss={handleDismissAlert} />
-          </div>
 
           {/* Zone 1: Stat Cards */}
           <div className="pt-2 lg:pt-6 pb-8">
             {/* Desktop: flat row with dividers */}
-            <div className="hidden lg:flex items-start">
+            <div className="hidden lg:flex items-start w-full">
               {statCards.map((s, i) => (
-                <div key={s.label} className="flex items-stretch">
-                  {i > 0 && <div className="self-stretch w-px bg-[#E8E8E6] mx-4" />}
+                <Fragment key={s.label}>
+                  {i > 0 && <div className="self-stretch w-px shrink-0 bg-[#E8E8E6] mx-4" />}
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, delay: i * 0.06, ease: 'easeOut' }}
                     className="flex-1 min-w-0 py-1"
                   >
-                    <div className={`text-[10px] uppercase tracking-wider ${s.danger ? 'text-[#D94F4F]/80' : 'text-[#9B9B9B]'}`}>
+                    <div className={`flex items-center gap-2 whitespace-nowrap text-[10px] uppercase tracking-wider ${s.danger ? 'text-[#D94F4F]/80' : 'text-[#9B9B9B]'}`}>
                       {s.label}
+                      {'tooltip' in s && s.tooltip && (
+                        <div className="group relative flex-shrink-0 normal-case tracking-normal">
+                          <span className="flex h-[7px] w-[7px] cursor-default select-none items-center justify-center rounded-full border border-[#D8D8D6] text-[#B8B8B8]" style={{ fontSize: '5px', lineHeight: 1 }}>?</span>
+                          <div className="pointer-events-none absolute right-0 bottom-full mb-1.5 z-50 w-44 whitespace-normal rounded-lg border border-[#E8E8E6] bg-white px-3 py-2 text-[10px] text-[#6B6B6B] shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed">
+                            {s.tooltip}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className={`mt-2 text-xl font-bold tabular-nums ${s.danger ? 'text-[#D94F4F]' : 'text-[#1A1A1A]'}`}>
                       {s.value}
@@ -398,7 +512,7 @@ export default function Dashboard() {
                       {s.sub}
                     </div>
                   </motion.div>
-                </div>
+                </Fragment>
               ))}
             </div>
             {/* Mobile: grid */}
@@ -410,8 +524,16 @@ export default function Dashboard() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: i * 0.06, ease: 'easeOut' }}
                 >
-                  <div className={`text-[10px] uppercase tracking-wider ${s.danger ? 'text-[#D94F4F]/80' : 'text-[#9B9B9B]'}`}>
+                  <div className={`flex items-center gap-2 whitespace-nowrap text-[10px] uppercase tracking-wider ${s.danger ? 'text-[#D94F4F]/80' : 'text-[#9B9B9B]'}`}>
                     {s.label}
+                    {'tooltip' in s && s.tooltip && (
+                      <div className="group relative flex-shrink-0 normal-case tracking-normal">
+                        <span className="flex h-[7px] w-[7px] cursor-default select-none items-center justify-center rounded-full border border-[#D8D8D6] text-[#B8B8B8]" style={{ fontSize: '5px', lineHeight: 1 }}>?</span>
+                        <div className="pointer-events-none absolute right-0 bottom-full mb-1.5 z-50 w-44 whitespace-normal rounded-lg border border-[#E8E8E6] bg-white px-3 py-2 text-[10px] text-[#6B6B6B] shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed">
+                          {s.tooltip}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className={`mt-1.5 text-xl font-bold tabular-nums ${s.danger ? 'text-[#D94F4F]' : 'text-[#1A1A1A]'}`}>
                     {s.value}
@@ -429,19 +551,19 @@ export default function Dashboard() {
 
           {/* Zone 2: Cash Flow Chart */}
           <div data-pdf-chart className="py-8">
-            <div className="bg-white border border-[#E8E8E6] rounded-xl p-4 md:p-6 shadow-sm">
+            <div className="rounded-2xl border border-[#E8E8E6] bg-white px-6 py-5">
               <div className="mb-1 flex items-center justify-between">
-                <h2 className="text-sm uppercase tracking-widest text-[#9B9B9B] font-semibold font-mono">
+                <h2 className="text-[11px] font-semibold uppercase tracking-widest text-[#1A1A1A] font-mono">
                   Cash Flow Timeline
                 </h2>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-4 text-[10px] text-[#9B9B9B]">
+                  <div className="flex items-center gap-3 text-[10px] text-[#9B9B9B]">
                     <span className="flex items-center gap-1.5">
-                      <span className="h-2 w-4 rounded" style={{ backgroundColor: '#0D7C66', opacity: 0.7 }} />
+                      <span className="inline-block h-px w-4 bg-[#0D7C66]" />
                       Historical
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <span className="h-2 w-4 rounded border border-dashed" style={{ borderColor: '#6BB5A5' }} />
+                      <span className="inline-block h-px w-4 border-t border-dashed border-[#6BB5A5]" />
                       Forecast
                     </span>
                   </div>
@@ -457,7 +579,7 @@ export default function Dashboard() {
                   </button>
                 </div>
               </div>
-              <p className="mb-6 text-xs text-[#6B6B6B]">60-day history + 30-day projection</p>
+              <p className="mb-4 text-[10px] text-[#9B9B9B]">60-day history + 30-day projection</p>
 
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={chartDisplayData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
@@ -541,7 +663,7 @@ export default function Dashboard() {
                     setChartModalPrompt(prompt);
                     setChartModalOpen(true);
                   }}
-                  className="flex items-center gap-1.5 rounded-full border border-[#E8E8E6] bg-white px-3 py-2 text-xs text-[#6B6B6B] hover:bg-[#F5F5F3] shadow-sm transition-colors"
+                  className="flex items-center gap-1.5 rounded-full border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-2 text-xs text-[#6B6B6B] hover:bg-[#F0F0EE] hover:text-[#1A1A1A] transition-colors"
                 >
                   <span className="text-[#0D7C66] text-[10px]">✦</span>
                   {prompt}
@@ -636,6 +758,119 @@ export default function Dashboard() {
               )}
             </AnimatePresence>
           </div>
+
+          {/* ── Zone 5: Growth Projection (conditional) ────────────────── */}
+          {showGrowthProjection && growthProjectionData.length > 0 && (
+            <>
+              {/* Divider */}
+              <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+              <div className="py-8">
+                <div className="rounded-2xl border border-[#E8E8E6] bg-white px-6 py-5">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#1A1A1A] font-mono">
+                      Growth Projection
+                    </h3>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 text-[10px] text-[#9B9B9B]">
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block h-px w-4 bg-[#0D7C66]" />
+                          Historical
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block h-px w-4 border-t border-dashed border-[#6BB5A5]" />
+                          Projected
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => { setGrowthModalPrompt(undefined); setGrowthModalOpen(true); }}
+                        className="rounded-lg p-1.5 text-[#9B9B9B] transition-colors hover:bg-[#F5F5F3] hover:text-[#1A1A1A]"
+                        title="Expand chart"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-[#9B9B9B] mb-4">
+                    24-month revenue trajectory · based on your current trend
+                  </p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={growthProjectionData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                      <defs>
+                        <linearGradient id="gradGrowthHistorical" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#0D7C66" stopOpacity={0.2} />
+                          <stop offset="100%" stopColor="#0D7C66" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gradGrowthProjected" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6BB5A5" stopOpacity={0.15} />
+                          <stop offset="100%" stopColor="#6BB5A5" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: '#9B9B9B', fontSize: 10 }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval={5}
+                      />
+                      <YAxis
+                        tick={{ fill: '#9B9B9B', fontSize: 10 }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                      />
+                      <Tooltip content={<GrowthTooltip />} />
+                      <ReferenceLine
+                        x={new Date().toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
+                        stroke="rgba(0,0,0,0.15)"
+                        strokeDasharray="4 4"
+                        label={{ value: 'Now', fill: '#9B9B9B', fontSize: 10, position: 'insideTopRight' }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="historical"
+                        stroke="#0D7C66"
+                        strokeWidth={2}
+                        fill="url(#gradGrowthHistorical)"
+                        dot={false}
+                        activeDot={{ r: 4, fill: '#0D7C66' }}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="projected"
+                        stroke="#6BB5A5"
+                        strokeWidth={2}
+                        strokeDasharray="5 4"
+                        fill="url(#gradGrowthProjected)"
+                        dot={false}
+                        activeDot={{ r: 4, fill: '#6BB5A5' }}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                {/* Growth prompt pills */}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {growthPrompts.map((prompt) => (
+                    <button
+                      key={prompt}
+                      onClick={() => { setGrowthModalPrompt(prompt); setGrowthModalOpen(true); }}
+                      className="flex items-center gap-1.5 rounded-full border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-2 text-xs text-[#6B6B6B] hover:bg-[#F0F0EE] hover:text-[#1A1A1A] transition-colors"
+                    >
+                      <span className="text-[#0D7C66] text-[10px]">✦</span>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* ── Column divider ─────────────────────────────────────────────── */}
@@ -651,6 +886,9 @@ export default function Dashboard() {
             approved={approved}
             dismissed={dismissed}
             analyzeStatus={analyzeStatus}
+            businessProfile={businessProfile}
+            externalPrompt={externalPrompt}
+            onExternalPromptConsumed={() => setExternalPrompt(undefined)}
             onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
             onDismiss={(type) => setDismissed((prev) => new Set([...prev, type]))}
             onTakeAction={(rec) => setEditingRec(rec)}
@@ -697,6 +935,8 @@ export default function Dashboard() {
                 approved={approved}
                 dismissed={dismissed}
                 analyzeStatus={analyzeStatus}
+                externalPrompt={externalPrompt}
+                onExternalPromptConsumed={() => setExternalPrompt(undefined)}
                 onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
                 onDismiss={(type) => setDismissed((prev) => new Set([...prev, type]))}
                 onTakeAction={(rec) => { setEditingRec(rec); setMobileInsightsOpen(false); }}
@@ -715,6 +955,19 @@ export default function Dashboard() {
           initialPrompt={chartModalPrompt}
           safetyFloor={safetyFloor}
           onClose={() => { setChartModalOpen(false); setChartModalPrompt(undefined); }}
+        />
+      )}
+
+      {/* ── Growth Chart Modal ──────────────────────────────────────────────── */}
+      {growthModalOpen && (
+        <GrowthChartModal
+          growthProjectionData={growthProjectionData}
+          growthPrompts={growthPrompts}
+          transactions={transactions}
+          accounts={accounts}
+          businessProfile={businessProfile}
+          initialPrompt={growthModalPrompt}
+          onClose={() => { setGrowthModalOpen(false); setGrowthModalPrompt(undefined); }}
         />
       )}
 

@@ -199,7 +199,11 @@ function DefaultActionView({
       if (!res.ok) throw new Error(data.error ?? 'Failed to generate');
       setDraft(data.reply);
     } catch {
-      setDraft('Failed to generate draft. Please try again.');
+      setDraft(
+        recommendation.suggested_action
+          ? `${recommendation.suggested_action}\n\n---\nNote: AI draft unavailable — edit this as needed.`
+          : 'Unable to generate a draft right now. Please try again.'
+      );
     } finally {
       setIsGenerating(false);
     }

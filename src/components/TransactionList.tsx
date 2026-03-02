@@ -29,6 +29,37 @@ function humanizeCategory(cat: string) {
   return cat.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
 
+const merchantLabels: Record<string, string> = {
+  'ADP': 'Payroll',
+  'Gusto': 'Payroll Software',
+  'Square': 'POS Sales',
+  'Toast': 'POS Sales',
+  'UberEats': 'Delivery Revenue',
+  'DoorDash': 'Delivery Revenue',
+  'Sysco': 'Food & Supplies',
+  'US Foods': 'Food & Supplies',
+  'Restaurant Depot': 'Food & Supplies',
+  'Costco': 'Bulk Supplies',
+  'Oakwood Properties': 'Rent',
+  'PG&E': 'Utilities',
+  'City Water': 'Utilities',
+  'QuickBooks': 'Accounting',
+  'Yelp': 'Advertising',
+  'OpenTable': 'Reservations',
+  'StateFarm': 'Insurance',
+  'Hobart Equipment': 'Equipment Lease',
+  'Amazon Business': 'Supplies',
+  'HD Supply': 'Cleaning Supplies',
+  'Home Depot': 'Maintenance',
+  'Catering Event': 'Catering Revenue',
+};
+
+function getDescription(tx: Transaction): string {
+  const merchant = tx.merchant_name ?? tx.name;
+  return merchantLabels[merchant]
+    ?? humanizeCategory(tx.personal_finance_category?.primary ?? tx.category?.[0] ?? 'Other');
+}
+
 export default function TransactionList({ transactions }: TransactionListProps) {
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('date');
@@ -53,6 +84,7 @@ export default function TransactionList({ transactions }: TransactionListProps) 
       list = list.filter(
         (tx) =>
           (tx.merchant_name ?? tx.name).toLowerCase().includes(q) ||
+          getDescription(tx).toLowerCase().includes(q) ||
           tx.date.includes(q),
       );
     }
@@ -95,7 +127,7 @@ export default function TransactionList({ transactions }: TransactionListProps) 
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="text"
-            placeholder="Search merchant…"
+            placeholder="Search transactions…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(0); }}
             className="rounded-md border border-[#E8E8E6] bg-[#F5F5F3] px-3 py-1.5 text-xs text-[#1A1A1A] placeholder-[#9B9B9B] outline-none focus:border-[#0D7C66]/50 w-40"
@@ -128,7 +160,7 @@ export default function TransactionList({ transactions }: TransactionListProps) 
                 className="cursor-pointer px-3 py-2 font-medium hover:text-[#6B6B6B] transition-colors"
                 onClick={() => toggleSort('name')}
               >
-                Merchant{sortIcon('name')}
+                Description{sortIcon('name')}
               </th>
               <th className="px-3 py-2 font-medium">Category</th>
               <th
@@ -151,8 +183,9 @@ export default function TransactionList({ transactions }: TransactionListProps) 
                   <td className="px-3 py-2.5 text-[#9B9B9B] tabular-nums whitespace-nowrap">
                     {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </td>
-                  <td className="px-3 py-2.5 text-[#1A1A1A] font-medium">
-                    {tx.merchant_name ?? tx.name}
+                  <td className="px-3 py-2.5">
+                    <div className="text-[#1A1A1A] font-medium">{getDescription(tx)}</div>
+                    <div className="text-[10px] text-[#9B9B9B]">{tx.merchant_name ?? tx.name}</div>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeStyle}`}>

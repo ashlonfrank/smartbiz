@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { Transaction, Account } from '@/lib/types';
+import { Transaction, Account, BusinessProfile } from '@/lib/types';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -62,12 +62,13 @@ ${JSON.stringify(recent, null, 2)}`;
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, transactions, accounts, history, alerts } = await request.json() as {
+    const { message, transactions, accounts, history, alerts, businessProfile } = await request.json() as {
       message: string;
       transactions: Transaction[];
       accounts: Account[];
       history?: { role: 'user' | 'assistant'; content: string }[];
       alerts?: { title: string; description: string; type: string }[];
+      businessProfile?: BusinessProfile | null;
     };
 
     if (!message?.trim()) {
@@ -81,12 +82,17 @@ export async function POST(request: NextRequest) {
       alertContext = `\n\n## Active Alerts\n${alerts.map((a) => `- [${a.type.toUpperCase()}] ${a.title}: ${a.description}`).join('\n')}`;
     }
 
+    let profileContext = '';
+    if (businessProfile) {
+      profileContext = `\n\n## Business Context\nThis is a ${businessProfile.businessType} business in the "${businessProfile.stage}" stage. Their priorities are: ${businessProfile.priorities.join(', ')}. Tailor your responses to this context.`;
+    }
+
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       {
         role: 'system',
         content: `You are RunwayAI, a conversational financial assistant for small business owners. You have access to the user's real bank transaction data and account information below.
 
-${context}${alertContext}
+${context}${alertContext}${profileContext}
 
 Rules:
 - Be conversational, concise, and helpful.
