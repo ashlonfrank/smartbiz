@@ -296,9 +296,13 @@ export default function Dashboard() {
   }, [transactions, chartData]);
 
   // ── Growth projection ─────────────────────────────────────────────────────
-  const showGrowthProjection = businessProfile?.priorities?.some(
-    (p) => p === 'Hire or expand' || p === 'Forecast growth'
-  ) ?? false;
+  // Show by default when no profile is set (demo / pre-onboarding); otherwise
+  // respect the priorities the user selected during onboarding.
+  const showGrowthProjection =
+    businessProfile == null ||
+    (businessProfile.priorities?.some(
+      (p) => p === 'Hire or expand' || p === 'Forecast growth'
+    ) ?? false);
 
   const monthlyRevenue = useMemo(() => {
     const now = new Date();
