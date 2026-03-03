@@ -15,9 +15,9 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Transaction, Account, Recommendation, DailyFlow, BusinessProfile } from '@/lib/types';
-import { exportTransactionsCSV, exportDashboardPDF, exportLoanReadinessReport } from '@/lib/export';
+import { exportTransactionsCSV, exportDashboardPDF } from '@/lib/export';
 import { mockTransactions, mockAccounts } from '@/lib/mock-data';
-import LoanReadinessPreview from './LoanReadinessPreview';
+import LoanReadinessModal from './LoanReadinessModal';
 import {
   Alert,
   BudgetThreshold,
@@ -170,6 +170,7 @@ export default function Dashboard() {
   const [externalPrompt, setExternalPrompt] = useState<string | undefined>();
   const [growthModalOpen, setGrowthModalOpen] = useState(false);
   const [growthModalPrompt, setGrowthModalPrompt] = useState<string | undefined>();
+  const [loanModalOpen, setLoanModalOpen] = useState(false);
 
   // Load data from localStorage — fall back to mock data for development
   useEffect(() => {
@@ -464,7 +465,7 @@ export default function Dashboard() {
                     Download PDF Report
                   </button>
                   <button
-                    onClick={() => { exportLoanReadinessReport(transactions, accounts); setShowExportMenu(false); }}
+                    onClick={() => { setLoanModalOpen(true); setShowExportMenu(false); }}
                     className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-[#0D7C66] hover:bg-[#E8F5F0]"
                   >
                     <span className="text-[#0D7C66]">✦</span>
@@ -879,11 +880,6 @@ export default function Dashboard() {
             </>
           )}
 
-          {/* ── Zone 6: Loan Readiness Preview ─────────────────────────── */}
-          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
-          <div className="py-8">
-            <LoanReadinessPreview transactions={transactions} accounts={accounts} />
-          </div>
         </div>
 
         {/* ── Column divider ─────────────────────────────────────────────── */}
@@ -904,7 +900,10 @@ export default function Dashboard() {
             onExternalPromptConsumed={() => setExternalPrompt(undefined)}
             onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
             onDismiss={(type) => setDismissed((prev) => new Set([...prev, type]))}
-            onTakeAction={(rec) => setEditingRec(rec)}
+            onTakeAction={(rec) => {
+              if (rec.type === 'loan_readiness') { setLoanModalOpen(true); }
+              else { setEditingRec(rec); }
+            }}
           />
         </div>
       </div>
@@ -952,7 +951,10 @@ export default function Dashboard() {
                 onExternalPromptConsumed={() => setExternalPrompt(undefined)}
                 onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
                 onDismiss={(type) => setDismissed((prev) => new Set([...prev, type]))}
-                onTakeAction={(rec) => { setEditingRec(rec); setMobileInsightsOpen(false); }}
+                onTakeAction={(rec) => {
+                  if (rec.type === 'loan_readiness') { setLoanModalOpen(true); setMobileInsightsOpen(false); }
+                  else { setEditingRec(rec); setMobileInsightsOpen(false); }
+                }}
               />
             </div>
           </motion.div>
@@ -992,6 +994,15 @@ export default function Dashboard() {
           accounts={accounts}
           onClose={() => setEditingRec(null)}
           onApprove={(type) => setApproved((prev) => new Set([...prev, type]))}
+        />
+      )}
+
+      {/* ── Loan Readiness Modal ──────────────────────────────────────────── */}
+      {loanModalOpen && (
+        <LoanReadinessModal
+          transactions={transactions}
+          accounts={accounts}
+          onClose={() => setLoanModalOpen(false)}
         />
       )}
     </div>
