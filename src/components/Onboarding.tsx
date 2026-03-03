@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { BusinessType, BusinessStage, Priority, BusinessProfile } from '@/lib/types';
+import PlaidMockModal from './PlaidMockModal';
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -43,13 +44,16 @@ const FEATURES: Feature[] = [
 // ── Props ──────────────────────────────────────────────────────────
 
 interface OnboardingProps {
-  onComplete: (profile: BusinessProfile, mode: 'plaid' | 'demo') => void;
+  onComplete: (profile: BusinessProfile) => void;
 }
 
 // ── Component ──────────────────────────────────────────────────────
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(0);               // 0 = welcome, 1 = business, 2 = priorities, 3 = features
+  const [showPlaidModal, setShowPlaidModal] = useState(false);
+  const [plaidProgress, setPlaidProgress] = useState(0);
+
   const [businessType, setBusinessType] = useState<BusinessType | null>(null);
   const [stage, setStage] = useState<BusinessStage | null>(null);
   const [priorities, setPriorities] = useState<Set<Priority>>(new Set());
@@ -81,6 +85,28 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     return f.unlockedBy.some((p) => priorities.has(p));
   };
 
+  // ── Step dot logic (6 dots total) ────────────────────────────────
+  // dot 0 = welcome, dot 1-2 = plaid, dot 3 = business, dot 4 = priorities, dot 5 = features
+  const currentDotIndex = showPlaidModal
+    ? 1 + Math.min(plaidProgress, 1)
+    : step === 0
+      ? 0
+      : step + 2;           // step 1→3, step 2→4, step 3→5
+
+  // ── Plaid modal callbacks ────────────────────────────────────────
+  const handlePlaidProgress = useCallback((phase: number) => {
+    setPlaidProgress(phase);
+  }, []);
+
+  const handlePlaidComplete = useCallback(() => {
+    setShowPlaidModal(false);
+    setStep(1);
+  }, []);
+
+  const handlePlaidBack = useCallback(() => {
+    setShowPlaidModal(false);
+  }, []);
+
   const fadeVariants = {
     initial: { opacity: 0, y: 16 },
     animate: { opacity: 1, y: 0 },
@@ -89,13 +115,13 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center px-4">
-      {/* Step indicator */}
+      {/* Step indicator — 6 dots */}
       <div className="flex items-center gap-2 mb-8">
-        {[0, 1, 2, 3].map((i) => (
+        {[0, 1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
             className={`h-1.5 w-1.5 rounded-full transition-colors ${
-              i <= step ? 'bg-[#0D7C66]' : 'bg-[#E8E8E6]'
+              i <= currentDotIndex ? 'bg-[#0D7C66]' : 'bg-[#E8E8E6]'
             }`}
           />
         ))}
@@ -103,7 +129,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
       <AnimatePresence mode="wait">
         {/* ── Step 0: Welcome ─────────────────────────────────────── */}
-        {step === 0 && (
+        {step === 0 && !showPlaidModal && (
           <motion.div
             key="welcome"
             variants={fadeVariants}
@@ -119,16 +145,22 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             <h1 className="text-2xl font-bold text-[#1A1A1A] tracking-tight">RunwayAI</h1>
             <p className="mt-2 text-sm text-[#9B9B9B]">Your AI Cash Flow Agent</p>
             <p className="mt-6 text-xs text-[#6B6B6B] leading-relaxed">
-              Let&apos;s personalize your experience so we can surface
+              Connect your bank account and tell us about your business
               <br />
-              the insights that matter most to your business.
+              so we can surface the insights that matter most.
             </p>
             <button
-              onClick={() => setStep(1)}
+              onClick={() => setShowPlaidModal(true)}
               className="mt-8 rounded-lg bg-[#0D7C66] px-8 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#0A6B58]"
             >
               Get Started
             </button>
+            <div className="mt-4 flex items-center justify-center gap-1.5">
+              <svg className="h-3 w-3 text-[#0D7C66]" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a3.5 3.5 0 00-3.5 3.5V7H3.75A1.75 1.75 0 002 8.75v5.5c0 .966.784 1.75 1.75 1.75h8.5A1.75 1.75 0 0014 14.25v-5.5A1.75 1.75 0 0012.25 7H11.5V4.5A3.5 3.5 0 008 1z" />
+              </svg>
+              <span className="text-[10px] text-[#9B9B9B]">Secured by Plaid · Bank-level encryption · Read-only access</span>
+            </div>
           </motion.div>
         )}
 
@@ -309,16 +341,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
             <div className="mt-10 flex flex-col items-center gap-3">
               <button
-                onClick={() => onComplete(buildProfile(), 'plaid')}
+                onClick={() => onComplete(buildProfile())}
                 className="w-full max-w-xs rounded-lg bg-[#0D7C66] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#0A6B58]"
               >
-                Connect Your Bank Account
-              </button>
-              <button
-                onClick={() => onComplete(buildProfile(), 'demo')}
-                className="text-xs text-[#9B9B9B] hover:text-[#6B6B6B] underline transition-colors"
-              >
-                Try with demo data
+                Continue to Dashboard
               </button>
             </div>
 
@@ -331,6 +357,17 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               </button>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Plaid Mock Modal (overlay) ──────────────────────────── */}
+      <AnimatePresence>
+        {showPlaidModal && (
+          <PlaidMockModal
+            onComplete={handlePlaidComplete}
+            onBack={handlePlaidBack}
+            onProgress={handlePlaidProgress}
+          />
         )}
       </AnimatePresence>
     </div>
