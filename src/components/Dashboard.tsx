@@ -17,6 +17,7 @@ import {
 import { Transaction, Account, Recommendation, DailyFlow, BusinessProfile } from '@/lib/types';
 import { exportTransactionsCSV, exportDashboardPDF, exportLoanReadinessReport } from '@/lib/export';
 import { mockTransactions, mockAccounts } from '@/lib/mock-data';
+import LoanReadinessPreview from './LoanReadinessPreview';
 import {
   Alert,
   BudgetThreshold,
@@ -877,6 +878,12 @@ export default function Dashboard() {
               </div>
             </>
           )}
+
+          {/* ── Zone 6: Loan Readiness Preview ─────────────────────────── */}
+          <div className="-mx-4 md:-mx-8 border-t border-[#E8E8E6]" />
+          <div className="py-8">
+            <LoanReadinessPreview transactions={transactions} accounts={accounts} />
+          </div>
         </div>
 
         {/* ── Column divider ─────────────────────────────────────────────── */}
